@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# Credentials
+.jira-token
+.jira-basic
+.jira-base
+.mcp.json
+.claude/settings.local.json
