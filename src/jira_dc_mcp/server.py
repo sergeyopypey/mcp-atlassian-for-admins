@@ -14,7 +14,7 @@ from mcp.types import TextContent, Tool
 
 from .automation_cache import AutomationCache
 from .client import JiraClient
-from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis
+from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis, boards, servicedesk, filters
 
 logger = logging.getLogger(__name__)
 
@@ -402,6 +402,104 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
 
+    # ── Board tools ────────────────────────────────────────────────────────
+    {
+        "name": "list_boards",
+        "description": (
+            "List all agile boards (Scrum/Kanban). Optionally filter by project key. "
+            "Shows board name, type, and associated project."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {
+                    "type": "string",
+                    "description": "Optional project key to filter boards. Omit for all boards.",
+                },
+            },
+        },
+    },
+    {
+        "name": "get_board_configuration",
+        "description": (
+            "Get board configuration: columns (with status mappings and WIP limits), "
+            "estimation settings, ranking, and backing filter/JQL. "
+            "Shows how teams actually see and manage work vs. the underlying workflow."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "board_id": {"type": "integer", "description": "Agile board ID"},
+            },
+            "required": ["board_id"],
+        },
+    },
+
+    # ── Service Desk (JSM) tools ───────────────────────────────────────────
+    {
+        "name": "list_service_desks",
+        "description": "List all JSM service desks with project associations.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_service_desk_slas",
+        "description": (
+            "Get SLA metrics for a JSM service desk — response/resolution time targets. "
+            "Critical for understanding service commitments."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service_desk_id": {"type": "integer", "description": "Service desk ID (from list_service_desks)"},
+            },
+            "required": ["service_desk_id"],
+        },
+    },
+    {
+        "name": "get_service_desk_queues",
+        "description": (
+            "Get queues for a JSM service desk — how requests are triaged and routed. "
+            "Shows queue names, backing JQL, and issue counts."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service_desk_id": {"type": "integer", "description": "Service desk ID (from list_service_desks)"},
+            },
+            "required": ["service_desk_id"],
+        },
+    },
+
+    # ── Filter, dashboard & webhook tools ──────────────────────────────────
+    {
+        "name": "list_filters",
+        "description": (
+            "List favourite/shared JQL filters visible to the authenticated user. "
+            "Shows filter name, JQL query, owner, and share permissions."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_dashboards",
+        "description": "List all dashboards with owner and popularity.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_webhooks",
+        "description": (
+            "List all registered webhooks — external integrations notified on Jira events. "
+            "Shows URL, events, filters, and enabled status."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+
+    # ── Project category tools ─────────────────────────────────────────────
+    {
+        "name": "list_project_categories",
+        "description": "List all project categories used to group projects.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+
     # ── Analysis tools ─────────────────────────────────────────────────────
     {
         "name": "analyze_project_config_chain",
@@ -441,6 +539,11 @@ TOOLS: list[dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
+
+def _int(args: dict[str, Any], key: str) -> int:
+    """Extract an integer arg, coercing from string if needed (MCP client quirk)."""
+    return int(args[key])
+
 
 async def _dispatch(
     client: JiraClient,
@@ -484,25 +587,25 @@ async def _dispatch(
         case "list_workflow_schemes":
             return await workflows.list_workflow_schemes(client)
         case "get_workflow_scheme":
-            return await workflows.get_workflow_scheme(client, args["scheme_id"])
+            return await workflows.get_workflow_scheme(client, _int(args, "scheme_id"))
 
         # Screens
         case "list_screens":
             return await screens.list_screens(client)
         case "get_screen_tabs_and_fields":
-            return await screens.get_screen_tabs_and_fields(client, args["screen_id"])
+            return await screens.get_screen_tabs_and_fields(client, _int(args, "screen_id"))
         case "list_screen_schemes":
             return await screens.list_screen_schemes(client)
         case "get_screen_scheme":
-            return await screens.get_screen_scheme(client, args["scheme_id"])
+            return await screens.get_screen_scheme(client, _int(args, "scheme_id"))
 
         # Fields
         case "list_fields":
             return await fields.list_fields(client, args.get("custom_only", False))
         case "get_field_configuration":
-            return await fields.get_field_configuration(client, args["fc_id"])
+            return await fields.get_field_configuration(client, _int(args, "fc_id"))
         case "get_field_configuration_scheme":
-            return await fields.get_field_configuration_scheme(client, args["scheme_id"])
+            return await fields.get_field_configuration_scheme(client, _int(args, "scheme_id"))
         case "find_field_usage":
             return await fields.find_field_usage(client, args["field_id"])
         case "get_field_contexts":
@@ -510,19 +613,19 @@ async def _dispatch(
 
         # Schemes
         case "get_permission_scheme":
-            return await schemes.get_permission_scheme(client, args["scheme_id"])
+            return await schemes.get_permission_scheme(client, _int(args, "scheme_id"))
         case "list_permission_schemes":
             return await schemes.list_permission_schemes(client)
         case "get_notification_scheme":
-            return await schemes.get_notification_scheme(client, args["scheme_id"])
+            return await schemes.get_notification_scheme(client, _int(args, "scheme_id"))
         case "list_notification_schemes":
             return await schemes.list_notification_schemes(client)
         case "get_issue_type_scheme":
-            return await schemes.get_issue_type_scheme(client, args["scheme_id"])
+            return await schemes.get_issue_type_scheme(client, _int(args, "scheme_id"))
         case "get_issue_security_scheme":
-            return await schemes.get_issue_security_scheme(client, args["scheme_id"])
+            return await schemes.get_issue_security_scheme(client, _int(args, "scheme_id"))
         case "get_priority_scheme":
-            return await schemes.get_priority_scheme(client, args["scheme_id"])
+            return await schemes.get_priority_scheme(client, _int(args, "scheme_id"))
         case "list_all_scheme_types":
             return await schemes.list_all_scheme_types(client)
 
@@ -530,10 +633,36 @@ async def _dispatch(
         case "list_automation_rules":
             return await automation.list_automation_rules(automation_cache, args.get("project_key"))
         case "get_automation_rule_detail":
-            return await automation.get_automation_rule_detail(automation_cache, args["rule_id"])
+            return await automation.get_automation_rule_detail(automation_cache, _int(args, "rule_id"))
         case "refresh_automation_cache":
             count = await automation_cache.refresh()
             return json.dumps({"status": "refreshed", "rules_loaded": count})
+
+        # Boards
+        case "list_boards":
+            return await boards.list_boards(client, args.get("project_key"))
+        case "get_board_configuration":
+            return await boards.get_board_configuration(client, _int(args, "board_id"))
+
+        # Service Desk (JSM)
+        case "list_service_desks":
+            return await servicedesk.list_service_desks(client)
+        case "get_service_desk_slas":
+            return await servicedesk.get_service_desk_slas(client, _int(args, "service_desk_id"))
+        case "get_service_desk_queues":
+            return await servicedesk.get_service_desk_queues(client, _int(args, "service_desk_id"))
+
+        # Filters, dashboards, webhooks
+        case "list_filters":
+            return await filters.list_filters(client)
+        case "list_dashboards":
+            return await filters.list_dashboards(client)
+        case "list_webhooks":
+            return await filters.list_webhooks(client)
+
+        # Project categories
+        case "list_project_categories":
+            return await projects.list_project_categories(client)
 
         # Analysis
         case "analyze_project_config_chain":

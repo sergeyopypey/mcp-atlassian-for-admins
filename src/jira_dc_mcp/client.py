@@ -458,6 +458,91 @@ class JiraClient:
         return await self.get(f"/rest/api/2/priorityscheme/{scheme_id}")
 
     # ======================================================================
+    # Agile boards
+    # ======================================================================
+
+    async def list_boards(self, project_key: str | None = None) -> list[dict]:
+        """List all agile boards. Optionally filter by project key."""
+        params = {}
+        if project_key:
+            params["projectKeyOrId"] = project_key
+        try:
+            return await self.get_paged(
+                "/rest/agile/1.0/board", key="values", params=params,
+            )
+        except httpx.HTTPStatusError:
+            return []
+
+    async def get_board_configuration(self, board_id: int) -> dict:
+        """Get board configuration: columns, estimation, ranking, filter."""
+        return await self.get(f"/rest/agile/1.0/board/{board_id}/configuration")
+
+    # ======================================================================
+    # JSM Service Desk — SLAs and queues
+    # ======================================================================
+
+    async def get_service_desk_slas(self, service_desk_id: int) -> list[dict]:
+        """Get SLA metrics for a service desk.
+
+        Note: The servicedeskapi may require the JSM agent to have appropriate permissions.
+        """
+        try:
+            data = await self.get(
+                f"/rest/servicedeskapi/servicedesk/{service_desk_id}/sla/metrics"
+            )
+            return data.get("values", []) if isinstance(data, dict) else data
+        except httpx.HTTPStatusError:
+            return []
+
+    async def get_service_desk_queues(self, service_desk_id: int) -> list[dict]:
+        """Get queues for a service desk."""
+        try:
+            data = await self.get(
+                f"/rest/servicedeskapi/servicedesk/{service_desk_id}/queue"
+            )
+            return data.get("values", []) if isinstance(data, dict) else data
+        except httpx.HTTPStatusError:
+            return []
+
+    # ======================================================================
+    # Filters, dashboards, webhooks
+    # ======================================================================
+
+    async def list_filters(self) -> list[dict]:
+        """List favourite/shared filters visible to the authenticated user."""
+        try:
+            return await self.get("/rest/api/2/filter/favourite")
+        except httpx.HTTPStatusError:
+            return []
+
+    async def list_dashboards(self) -> list[dict]:
+        """List all dashboards."""
+        try:
+            return await self.get_paged(
+                "/rest/api/2/dashboard", key="dashboards",
+            )
+        except httpx.HTTPStatusError:
+            return []
+
+    async def list_webhooks(self) -> list[dict]:
+        """List all registered webhooks."""
+        try:
+            return await self.get("/rest/api/2/webhook")
+        except httpx.HTTPStatusError:
+            return []
+
+    # ======================================================================
+    # Project categories
+    # ======================================================================
+
+    async def list_project_categories(self) -> list[dict]:
+        """List all project categories."""
+        try:
+            return await self.get("/rest/api/2/projectCategory")
+        except httpx.HTTPStatusError:
+            return []
+
+    # ======================================================================
     # Scheme ↔ Project associations (DC 10)
     # ======================================================================
 

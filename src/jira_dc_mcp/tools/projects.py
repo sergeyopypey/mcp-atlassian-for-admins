@@ -141,3 +141,17 @@ async def get_project_versions(client: JiraClient, project_key: str) -> str:
         for v in versions
     ]
     return json.dumps(result, indent=2)
+
+
+async def list_project_categories(client: JiraClient) -> str:
+    """List all project categories."""
+    categories = await client.list_project_categories()
+    result = [
+        {
+            "id": c.get("id"),
+            "name": c.get("name"),
+            "description": c.get("description", ""),
+        }
+        for c in categories
+    ]
+    return json.dumps(result, indent=2)

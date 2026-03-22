@@ -12,5 +12,4 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .mcp.json
-TODO.md
 .claude/
