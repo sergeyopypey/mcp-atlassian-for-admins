@@ -10,9 +10,9 @@ from ..automation_cache import AutomationCache
 async def list_automation_rules(cache: AutomationCache, project_key: str | None = None) -> str:
     """List automation rules — all or filtered by project key."""
     if project_key:
-        rules = cache.get_rules_for_project(project_key)
+        rules = await cache.get_rules_for_project(project_key)
     else:
-        rules = cache.get_all_rules()
+        rules = await cache.get_all_rules()
 
     result = [
         {
@@ -31,7 +31,7 @@ async def list_automation_rules(cache: AutomationCache, project_key: str | None 
 
 async def get_automation_rule_detail(cache: AutomationCache, rule_id: int) -> str:
     """Get full automation rule detail from cache."""
-    rule = cache.get_rule_by_id(rule_id)
+    rule = await cache.get_rule_by_id(rule_id)
     if rule is None:
         return json.dumps({"error": f"Rule {rule_id} not found in cache"})
     return json.dumps(rule, indent=2)

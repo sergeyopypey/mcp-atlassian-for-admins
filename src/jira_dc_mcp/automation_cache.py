@@ -57,18 +57,26 @@ class AutomationCache:
 
     # -- data access ---------------------------------------------------------
 
-    def get_all_rules(self) -> list[dict]:
+    async def ensure_refreshed(self) -> None:
+        """If the cache has never been successfully populated, force a refresh."""
+        if self._last_refresh == 0:
+            logger.info("Automation cache not yet populated — refreshing now")
+            await self._refresh()
+
+    async def get_all_rules(self) -> list[dict]:
         """Return all cached automation rules."""
+        await self.ensure_refreshed()
         return list(self._rules)
 
-    def get_rule_by_id(self, rule_id: int) -> dict | None:
+    async def get_rule_by_id(self, rule_id: int) -> dict | None:
         """Look up a single rule by ID from cache."""
+        await self.ensure_refreshed()
         for rule in self._rules:
             if rule.get("id") == rule_id:
                 return rule
         return None
 
-    def get_rules_for_project(self, project_key: str) -> list[dict]:
+    async def get_rules_for_project(self, project_key: str) -> list[dict]:
         """Filter cached rules by project key.
 
         Checks three locations:
@@ -77,6 +85,7 @@ class AutomationCache:
         2. JQL strings in triggers, conditions, and actions
         3. The 'ruleScope' field (some A4J versions)
         """
+        await self.ensure_refreshed()
         key_upper = project_key.upper()
         project_id = self._key_to_id.get(key_upper)
         result = []

@@ -213,7 +213,7 @@ async def dump_workflows(client: JiraClient) -> str:
 async def dump_automation_rules(client: JiraClient, automation_cache=None) -> str:
     """Dump all A4J automation rules from the in-memory cache."""
     if automation_cache is not None:
-        all_rules = automation_cache.get_all_rules()
+        all_rules = await automation_cache.get_all_rules()
     else:
         # Fallback: direct fetch if cache not available
         all_rules = await _safe(client.export_automation_rules(), [], "a4j_export")
