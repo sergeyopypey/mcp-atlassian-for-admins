@@ -25,20 +25,24 @@ def _parse_workflow_xml(xml_str: str) -> dict:
     for m in root.findall("meta"):
         meta[m.get("name", "")] = m.text or ""
 
-    # Parse common-actions (global transitions)
-    global_action_ids: set[int] = set()
-    for ga in root.findall(".//common-actions/action"):
-        aid = ga.get("id")
+    # Build common-action lookup: id → action XML element
+    common_action_map: dict[str, ET.Element] = {}
+    for ca in root.findall(".//common-actions/action"):
+        aid = ca.get("id")
         if aid:
-            global_action_ids.add(int(aid))
+            common_action_map[aid] = ca
 
-    # Parse steps (statuses)
+    # First pass: build step_map (step id → step name)
+    step_map: dict[int, str] = {}
+    for step in root.findall(".//step"):
+        step_id = int(step.get("id", 0))
+        step_map[step_id] = step.get("name", "")
+
+    # Second pass: parse steps with both inline and common-action transitions
     steps = []
-    step_map: dict[int, str] = {}  # step id → step name
     for step in root.findall(".//step"):
         step_id = int(step.get("id", 0))
         step_name = step.get("name", "")
-        step_map[step_id] = step_name
 
         step_meta = {}
         for m in step.findall("meta"):
@@ -50,10 +54,19 @@ def _parse_workflow_xml(xml_str: str) -> dict:
             "statusId": step_meta.get("jira.status.id"),
         }
 
-        # Parse step actions (transitions from this step)
+        # Parse inline actions (transitions defined directly in this step)
         actions = []
         for action in step.findall(".//action"):
             actions.append(_parse_action(action, step_name, step_map))
+
+        # Resolve common-action references (shared transitions used by this step)
+        for ca_ref in step.findall(".//common-action"):
+            ca_id = ca_ref.get("id")
+            if ca_id and ca_id in common_action_map:
+                actions.append(
+                    _parse_action(common_action_map[ca_id], step_name, step_map)
+                )
+
         if actions:
             step_entry["actions"] = actions
 
@@ -64,22 +77,18 @@ def _parse_workflow_xml(xml_str: str) -> dict:
     for action in root.findall(".//initial-actions/action"):
         initial_actions.append(_parse_action(action, "(initial)", step_map))
 
-    # Parse common-actions
-    common_actions = []
-    for action in root.findall(".//common-actions/action"):
-        common_actions.append(_parse_action(action, "(global)", step_map))
-
-    # Parse global-actions
+    # Parse global-actions (available from any status)
+    global_actions = []
     for action in root.findall(".//global-actions/action"):
-        common_actions.append(_parse_action(action, "(global)", step_map))
+        global_actions.append(_parse_action(action, "(global)", step_map))
 
     result: dict = {
         "steps": steps,
     }
     if initial_actions:
         result["initialActions"] = initial_actions
-    if common_actions:
-        result["globalActions"] = common_actions
+    if global_actions:
+        result["globalActions"] = global_actions
 
     return result
 
@@ -240,20 +249,75 @@ def _simplify_class(class_name: str) -> str:
     return class_name
 
 
-async def list_workflows(client: JiraClient) -> str:
-    """List all workflows with summary stats."""
+import re
+
+# Patterns that indicate a workflow is a backup or copy (case-insensitive)
+_INACTIVE_PATTERNS = re.compile(
+    r"(?:^copy of |[\s(]\bcopy\b[\s)]|[\s(]\bcopy\s*\d*\b[\s)]"
+    r"|\bbackup\b|\bBACKUP\b|\bold\b[\s)_-]"
+    r"|\bdeprecated\b|\barchived?\b|\bdraft\b|\btest\b|\btemp\b"
+    r"|\bDO NOT USE\b|\bdo not use\b"
+    r"|\bv\d+\s*[-–]\s*old\b)",
+    re.IGNORECASE,
+)
+
+
+def _build_workflow_entry(wf: dict) -> dict:
+    """Build a normalized workflow entry from raw API data."""
+    name = wf.get("name") or (wf.get("id", {}).get("name") if isinstance(wf.get("id"), dict) else wf.get("id"))
+    return {
+        "name": name,
+        "description": wf.get("description", ""),
+        "isDefault": wf.get("isDefault", wf.get("default", False)),
+        "steps": wf.get("steps"),
+        "statusCount": len(wf.get("statuses", [])),
+        "transitionCount": len(wf.get("transitions", [])),
+    }
+
+
+async def list_all_workflows(client: JiraClient) -> str:
+    """List all workflows (including backups and copies) with summary stats."""
     workflows = await client.list_workflows()
+    result = [_build_workflow_entry(wf) for wf in workflows]
+    return json.dumps(result, indent=2)
+
+
+async def list_active_workflows(client: JiraClient) -> str:
+    """List only active workflows, filtering out backups, copies, and deprecated ones.
+
+    Filters out workflows whose names match common backup/copy/deprecated patterns
+    and cross-references with workflow schemes to mark which workflows are in use.
+    """
+    workflows = await client.list_workflows()
+
+    # Build set of workflow names referenced by workflow schemes
+    in_use_names: set[str] = set()
+    try:
+        schemes = await client.list_workflow_schemes()
+        for scheme in schemes:
+            default_wf = scheme.get("defaultWorkflow")
+            if default_wf:
+                in_use_names.add(default_wf)
+            for wf_name in (scheme.get("issueTypeMappings") or {}).values():
+                in_use_names.add(wf_name)
+    except Exception:
+        pass  # If scheme fetch fails, skip in-use detection
+
     result = []
     for wf in workflows:
-        name = wf.get("name") or (wf.get("id", {}).get("name") if isinstance(wf.get("id"), dict) else wf.get("id"))
-        result.append({
-            "name": name,
-            "description": wf.get("description", ""),
-            "isDefault": wf.get("isDefault", wf.get("default", False)),
-            "steps": wf.get("steps"),
-            "statusCount": len(wf.get("statuses", [])),
-            "transitionCount": len(wf.get("transitions", [])),
-        })
+        entry = _build_workflow_entry(wf)
+        name = entry["name"] or ""
+
+        # Skip workflows matching inactive patterns
+        if _INACTIVE_PATTERNS.search(name):
+            continue
+
+        # Add inUse flag if we have scheme data
+        if in_use_names:
+            entry["inUse"] = name in in_use_names
+
+        result.append(entry)
+
     return json.dumps(result, indent=2)
 
 
@@ -352,6 +416,15 @@ async def list_workflow_schemes(client: JiraClient) -> str:
 async def get_workflow_scheme(client: JiraClient, scheme_id: int) -> str:
     """Get a workflow scheme with full issue-type-to-workflow mappings."""
     scheme = await client.get_workflow_scheme(scheme_id)
+    # Jira returns ALL instance issue types in 'issueTypes' field,
+    # filter to only those actually mapped in this scheme
+    mappings = scheme.get("issueTypeMappings", {})
+    all_issue_types = scheme.get("issueTypes", {})
+    if mappings and all_issue_types:
+        scheme["issueTypes"] = {
+            tid: info for tid, info in all_issue_types.items()
+            if tid in mappings
+        }
     return json.dumps(scheme, indent=2)
 
 

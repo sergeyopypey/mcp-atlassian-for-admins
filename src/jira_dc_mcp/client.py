@@ -567,6 +567,17 @@ class JiraClient:
         return await self.get_paged("/rest/api/2/fieldconfigurationscheme/project", key="values")
 
     # ======================================================================
+    # Users
+    # ======================================================================
+
+    async def get_user(self, key: str) -> dict:
+        """Get user by key or username."""
+        return await self.get("/rest/api/2/user", params={"key": key})
+
+    async def find_users(self, query: str, max_results: int = 10) -> list[dict]:
+        """Search for users by username, name, or email."""
+        return await self.get("/rest/api/2/user/search", params={"username": query, "maxResults": max_results})
+
     # Automation for Jira (A4J) — /rest/cb-automation/
     # ======================================================================
 

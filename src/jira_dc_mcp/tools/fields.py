@@ -10,10 +10,13 @@ from ..client import JiraClient
 logger = logging.getLogger(__name__)
 
 
-async def list_fields(client: JiraClient, custom_only: bool = False) -> str:
-    """List all fields (system + custom), optionally filtered to custom only."""
+async def list_fields(client: JiraClient, custom_only: bool = False, field_ids: list[str] | None = None) -> str:
+    """List all fields (system + custom), optionally filtered to custom only or by specific IDs."""
     fields = await client.list_fields()
-    if custom_only:
+    if field_ids:
+        id_set = set(field_ids)
+        fields = [f for f in fields if f.get("id") in id_set]
+    elif custom_only:
         fields = [f for f in fields if f.get("custom", False)]
 
     result = [

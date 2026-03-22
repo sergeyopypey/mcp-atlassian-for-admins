@@ -14,7 +14,7 @@ from mcp.types import TextContent, Tool
 
 from .automation_cache import AutomationCache
 from .client import JiraClient
-from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis, boards, servicedesk, filters
+from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis, boards, servicedesk, filters, users
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +128,17 @@ TOOLS: list[dict[str, Any]] = [
 
     # ── Workflow tools ─────────────────────────────────────────────────────
     {
-        "name": "list_workflows",
-        "description": "List all workflows with name, status count, transition count.",
+        "name": "list_active_workflows",
+        "description": (
+            "List active workflows (excludes backups, copies, deprecated). "
+            "Shows name, status/transition counts, and whether each workflow is in use by a scheme. "
+            "Use this by default; use list_all_workflows only when you need the full unfiltered list."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_all_workflows",
+        "description": "List ALL workflows including backups, copies, and deprecated ones. Prefer list_active_workflows for most use cases.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -225,12 +234,18 @@ TOOLS: list[dict[str, Any]] = [
         "name": "list_fields",
         "description": (
             "List all fields (system + custom) with types, search clause names. "
-            "Set custom_only=true to see only custom fields."
+            "Set custom_only=true to see only custom fields. "
+            "Pass field_ids to look up specific fields by ID."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "custom_only": {"type": "boolean", "description": "Only show custom fields", "default": False},
+                "field_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of specific field IDs to look up (e.g. ['customfield_12808', 'summary']). When provided, returns only these fields.",
+                },
             },
         },
     },
@@ -533,6 +548,37 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["query"],
         },
     },
+
+    # ── Users ──────────────────────────────────────────────────────────────
+    {
+        "name": "get_user",
+        "description": (
+            "Get user details by key (e.g. JIRAUSER17908), username, or user ID. "
+            "Returns display name, email, active status."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "User key, username, or user ID"},
+            },
+            "required": ["key"],
+        },
+    },
+    {
+        "name": "find_users",
+        "description": (
+            "Search for users by username, display name, or email address. "
+            "Returns matching users with key, name, email, and active status."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search string (username, name, or email)"},
+                "max_results": {"type": "integer", "description": "Max results to return (default 10)"},
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -578,8 +624,10 @@ async def _dispatch(
             return await projects.get_project_versions(client, args["project_key"])
 
         # Workflows
-        case "list_workflows":
-            return await workflows.list_workflows(client)
+        case "list_active_workflows":
+            return await workflows.list_active_workflows(client)
+        case "list_all_workflows":
+            return await workflows.list_all_workflows(client)
         case "get_workflow_detail":
             return await workflows.get_workflow_detail(client, args["workflow_name"])
         case "get_workflow_statuses_and_transitions":
@@ -601,7 +649,7 @@ async def _dispatch(
 
         # Fields
         case "list_fields":
-            return await fields.list_fields(client, args.get("custom_only", False))
+            return await fields.list_fields(client, args.get("custom_only", False), args.get("field_ids"))
         case "get_field_configuration":
             return await fields.get_field_configuration(client, _int(args, "fc_id"))
         case "get_field_configuration_scheme":
@@ -669,6 +717,12 @@ async def _dispatch(
             return await analysis.analyze_project_config_chain(client, args["project_key"])
         case "search_config":
             return await analysis.search_config(client, args["query"])
+
+        # Users
+        case "get_user":
+            return await users.get_user(client, args["key"])
+        case "find_users":
+            return await users.find_users(client, args["query"], args.get("max_results", 10))
 
         case _:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})

@@ -1,6 +1,6 @@
 # TODO — Jira DC MCP Server
 
-## What We Have (46 tools)
+## What We Have (47 tools)
 
 | Data | Tool | Status |
 |---|---|---|
@@ -10,7 +10,7 @@
 | Project versions | `get_project_versions` | Working |
 | Global config (statuses, priorities, resolutions, fields) | `dump_global_config` | Working |
 | Fields (system + custom) | `list_fields` | Working |
-| Workflows (statuses, transitions, screens, rule counts) | `list_workflows`, `get_workflow_statuses_and_transitions` | Working |
+| Workflows (statuses, transitions, screens, rule counts) | `list_active_workflows`, `list_all_workflows`, `get_workflow_statuses_and_transitions` | Working |
 | Workflow detail (XML-parsed rules, properties) | `get_workflow_detail` | Working |
 | Workflow schemes (issue type → workflow mapping) | `list_workflow_schemes`, `get_workflow_scheme` | Working |
 | Transition screens with fields | included in workflow tool | Working |
@@ -43,6 +43,7 @@
 
 ### Medium Impact
 
+- [x] **`list_active_workflows`** — Filters out backup/copy/deprecated workflows by name pattern and cross-references with workflow schemes to show `inUse` flag. `list_workflows` renamed to `list_all_workflows`.
 - [ ] **Issue link usage patterns** — We know 18 link types exist, but not which ones are actually used between which projects (e.g., "INCIDENT always links to ASS via 'Action item of incident'"). Requires JQL search sampling, not a config endpoint.
 
 ### Done (previously listed as missing)
