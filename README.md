@@ -1,6 +1,6 @@
 # Jira Data Center 10 MCP Server
 
-A **read-only** Model Context Protocol (MCP) server for deep introspection of **Jira Data Center 10**. Gives AI assistants full contextual understanding of your Jira instance — schemes, workflows, automations, screens, fields, issues, and their relationships.
+A **read-only** Model Context Protocol (MCP) server for deep introspection of **Jira Data Center 10**. Gives AI assistants full contextual understanding of a Jira instance — schemes, workflows, automations, screens, fields, issues, and their relationships.
 
 > **Read-only** — this server cannot modify any Jira configuration. All tools are introspection and analysis only.
 
@@ -17,8 +17,8 @@ A **read-only** Model Context Protocol (MCP) server for deep introspection of **
 
 ```
 ┌─────────────┐       MCP (stdio/SSE)       ┌──────────────────────┐
-│  AI Client   │◄──────────────────────────►│  jira-dc-mcp server  │
-│  (Claude)    │                             │  (read-only)         │
+│  MCP Client  │◄──────────────────────────►│  jira-dc-mcp server  │
+│              │                             │  (read-only)         │
 └─────────────┘                             │                      │
                                             │  ┌────────────────┐  │
                                             │  │  Jira REST v2   │  │
@@ -175,19 +175,19 @@ export JIRA_VERIFY_SSL="false"   # for self-signed certs
 
 ### Run
 
-**Stdio** (Claude Desktop / Claude Code):
+**Stdio**:
 
 ```bash
 python -m jira_dc_mcp
 ```
 
-**SSE** (remote clients):
+**SSE**:
 
 ```bash
 python -m jira_dc_mcp --transport sse --port 8080
 ```
 
-### Claude Code
+### MCP Client Configuration
 
 Add to `.mcp.json`:
 
