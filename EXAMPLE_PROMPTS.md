@@ -1,7 +1,7 @@
 # Example Prompts for Jira DC MCP
 
 A collection of real-world prompts organized by use case. Copy-paste these into
-Claude (with the MCP connected) to get started.
+your MCP client to get started.
 
 ---
 
