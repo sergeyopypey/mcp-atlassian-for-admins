@@ -14,7 +14,7 @@ from mcp.types import TextContent, Tool
 
 from .automation_cache import AutomationCache
 from .client import JiraClient
-from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis, boards, servicedesk, filters, users
+from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis, boards, servicedesk, filters, users, issues
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +289,22 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_createmeta_fields",
+        "description": (
+            "Get fields available on the CREATE screen for a project + issue type. "
+            "Shows field name, required flag, allowed values (for select/radio/checkbox fields), "
+            "and default values. Use to discover what values an automation rule must set."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {"type": "string", "description": "Jira project key (e.g. 'CL')"},
+                "issue_type_id": {"type": "string", "description": "Issue type ID (e.g. '13602')"},
+            },
+            "required": ["project_key", "issue_type_id"],
+        },
+    },
+    {
         "name": "get_field_contexts",
         "description": (
             "Get custom field contexts — which projects and issue types the field is scoped to. "
@@ -406,6 +422,68 @@ TOOLS: list[dict[str, Any]] = [
                 "rule_id": {"type": "integer", "description": "Automation rule ID"},
             },
             "required": ["rule_id"],
+        },
+    },
+    {
+        "name": "get_automation_audit_log",
+        "description": (
+            "Get the global A4J automation audit log — recent executions across all rules. "
+            "Shows rule name, execution state (SUCCESS/ERROR), trigger issue, and timing. "
+            "Use to debug why an automation did or did not fire."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Number of results to return (default 50)"},
+                "offset": {"type": "integer", "description": "Offset for pagination (default 0)"},
+                "categories": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["SUCCESS", "SOME_ERRORS", "ERROR", "RULE_ERROR", "ACTIONS_DISABLED", "NO_ACTIONS_PERFORMED"]},
+                    "description": "Filter by execution categories. Omit for all.",
+                },
+                "date_from": {"type": "string", "description": "Start date filter (YYYY-MM-DD)"},
+                "date_to": {"type": "string", "description": "End date filter (YYYY-MM-DD)"},
+            },
+        },
+    },
+    {
+        "name": "get_automation_rule_audit_log",
+        "description": (
+            "Get execution history for a specific A4J automation rule. "
+            "Shows each execution with state (SUCCESS/ERROR), trigger issue, "
+            "duration, and error messages. Essential for debugging rule failures."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rule_id": {"type": "integer", "description": "Automation rule ID"},
+                "limit": {"type": "integer", "description": "Number of results to return (default 50)"},
+                "offset": {"type": "integer", "description": "Offset for pagination (default 0)"},
+                "categories": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["SUCCESS", "SOME_ERRORS", "ERROR", "RULE_ERROR", "ACTIONS_DISABLED", "NO_ACTIONS_PERFORMED"]},
+                    "description": "Filter by execution categories. Omit for all.",
+                },
+                "date_from": {"type": "string", "description": "Start date filter (YYYY-MM-DD)"},
+                "date_to": {"type": "string", "description": "End date filter (YYYY-MM-DD)"},
+            },
+            "required": ["rule_id"],
+        },
+    },
+    {
+        "name": "get_automation_audit_item",
+        "description": (
+            "Get detailed info for a single A4J audit log entry. "
+            "Returns component-level execution results, error messages, "
+            "and the trigger issue. Use after finding an entry in the audit log "
+            "to see exactly what went wrong or what actions were performed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "integer", "description": "Audit log entry ID (from get_automation_audit_log or get_automation_rule_audit_log)"},
+            },
+            "required": ["item_id"],
         },
     },
     {
@@ -549,6 +627,30 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 
+    # ── Issues ─────────────────────────────────────────────────────────────
+    {
+        "name": "get_issue",
+        "description": (
+            "Get a Jira issue by key (e.g. 'PROJ-123'). Returns summary, status, type, "
+            "priority, assignee, reporter, labels, components, description, links, and "
+            "recent comments. Optionally pass a comma-separated list of field IDs to restrict output."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue_key": {"type": "string", "description": "Issue key (e.g. 'PROJ-123')"},
+                "fields": {
+                    "type": "string",
+                    "description": (
+                        "Comma-separated field IDs to return (e.g. 'summary,status,customfield_10001'). "
+                        "Omit for default fields."
+                    ),
+                },
+            },
+            "required": ["issue_key"],
+        },
+    },
+
     # ── Users ──────────────────────────────────────────────────────────────
     {
         "name": "get_user",
@@ -656,6 +758,8 @@ async def _dispatch(
             return await fields.get_field_configuration_scheme(client, _int(args, "scheme_id"))
         case "find_field_usage":
             return await fields.find_field_usage(client, args["field_id"])
+        case "get_createmeta_fields":
+            return await fields.get_createmeta_fields(client, args["project_key"], args["issue_type_id"])
         case "get_field_contexts":
             return await fields.get_field_contexts(client, args["field_id"])
 
@@ -682,6 +786,27 @@ async def _dispatch(
             return await automation.list_automation_rules(automation_cache, args.get("project_key"))
         case "get_automation_rule_detail":
             return await automation.get_automation_rule_detail(automation_cache, _int(args, "rule_id"))
+        case "get_automation_audit_log":
+            return await automation.get_automation_audit_log(
+                client, automation_cache,
+                limit=args.get("limit", 50),
+                offset=args.get("offset", 0),
+                categories=args.get("categories"),
+                date_from=args.get("date_from"),
+                date_to=args.get("date_to"),
+            )
+        case "get_automation_rule_audit_log":
+            return await automation.get_automation_rule_audit_log(
+                client, automation_cache,
+                rule_id=_int(args, "rule_id"),
+                limit=args.get("limit", 50),
+                offset=args.get("offset", 0),
+                categories=args.get("categories"),
+                date_from=args.get("date_from"),
+                date_to=args.get("date_to"),
+            )
+        case "get_automation_audit_item":
+            return await automation.get_automation_audit_item(client, _int(args, "item_id"))
         case "refresh_automation_cache":
             count = await automation_cache.refresh()
             return json.dumps({"status": "refreshed", "rules_loaded": count})
@@ -717,6 +842,10 @@ async def _dispatch(
             return await analysis.analyze_project_config_chain(client, args["project_key"])
         case "search_config":
             return await analysis.search_config(client, args["query"])
+
+        # Issues
+        case "get_issue":
+            return await issues.get_issue(client, args["issue_key"], args.get("fields"))
 
         # Users
         case "get_user":

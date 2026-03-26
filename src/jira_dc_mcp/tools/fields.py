@@ -146,6 +146,40 @@ async def find_field_usage(client: JiraClient, field_id: str) -> str:
     return json.dumps(result, indent=2)
 
 
+async def get_createmeta_fields(
+    client: JiraClient, project_key: str, issue_type_id: str
+) -> str:
+    """Get fields available on the CREATE screen for a project + issue type.
+
+    Shows field name, required flag, allowed values (for select/radio/checkbox fields),
+    and default values. Essential for understanding what an automation rule must set
+    when creating an issue.
+    """
+    raw = await client.get_createmeta_fields(project_key, issue_type_id)
+    result = []
+    for f in raw:
+        entry: dict = {
+            "fieldId": f.get("fieldId"),
+            "name": f.get("name"),
+            "required": f.get("required", False),
+            "schema": f.get("schema"),
+            "hasDefaultValue": f.get("hasDefaultValue", False),
+        }
+        if f.get("allowedValues"):
+            entry["allowedValues"] = [
+                {
+                    "id": v.get("id"),
+                    "value": v.get("value") or v.get("name"),
+                    "disabled": v.get("disabled", False),
+                }
+                for v in f["allowedValues"]
+            ]
+        if f.get("defaultValue"):
+            entry["defaultValue"] = f["defaultValue"]
+        result.append(entry)
+    return json.dumps(result, indent=2)
+
+
 async def get_field_contexts(client: JiraClient, field_id: str) -> str:
     """Get custom field contexts — which projects and issue types the field is scoped to.
 

@@ -570,6 +570,17 @@ class JiraClient:
     # Users
     # ======================================================================
 
+    # ======================================================================
+    # Issues
+    # ======================================================================
+
+    async def get_issue(self, issue_key: str, fields: str | None = None) -> dict:
+        """Get a single issue by key. Optionally restrict to specific fields."""
+        params: dict[str, str] = {}
+        if fields:
+            params["fields"] = fields
+        return await self.get(f"/rest/api/2/issue/{quote(issue_key)}", params=params or None)
+
     async def get_user(self, key: str) -> dict:
         """Get user by key or username."""
         return await self.get("/rest/api/2/user", params={"key": key})
@@ -580,6 +591,58 @@ class JiraClient:
 
     # Automation for Jira (A4J) — /rest/cb-automation/
     # ======================================================================
+
+    async def get_automation_audit_log(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        categories: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        rule_id: int | None = None,
+    ) -> dict:
+        """Get the A4J automation audit log.
+
+        Endpoint: /rest/cb-automation/latest/audit/GLOBAL
+        Supports filtering by categories, date range, and rule ID.
+        Categories: SUCCESS, SOME_ERRORS, ERROR, RULE_ERROR, ACTIONS_DISABLED
+        Dates: YYYY-MM-DD format.
+        """
+        try:
+            # Build params manually — categories is a repeated param
+            client = await self._get_client()
+            params: list[tuple[str, str]] = [
+                ("limit", str(limit)),
+                ("offset", str(offset)),
+            ]
+            if categories:
+                for cat in categories:
+                    params.append(("categories", cat))
+            if date_from:
+                params.append(("dateFrom", date_from))
+            if date_to:
+                params.append(("dateTo", date_to))
+            if rule_id is not None:
+                params.append(("ruleId", str(rule_id)))
+            resp = await client.get(
+                "/rest/cb-automation/latest/audit/GLOBAL",
+                params=params,
+            )
+            resp.raise_for_status()
+            return resp.json() if resp.content else {"results": []}
+        except httpx.HTTPStatusError as e:
+            logger.warning("A4J audit log failed: %s", e.response.status_code)
+            return {"results": []}
+
+    async def get_automation_audit_item(self, item_id: int) -> dict:
+        """Get detailed info for a single A4J audit log entry."""
+        try:
+            return await self.get(
+                f"/rest/cb-automation/latest/audit/GLOBAL/item/{item_id}",
+            )
+        except httpx.HTTPStatusError as e:
+            logger.warning("A4J audit item %d failed: %s", item_id, e.response.status_code)
+            return {"error": f"Failed to fetch audit item {item_id}: HTTP {e.response.status_code}"}
 
     async def export_automation_rules(self) -> list[dict]:
         """Export all automation rules via the single GLOBAL export endpoint."""

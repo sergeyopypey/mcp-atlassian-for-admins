@@ -135,35 +135,61 @@ class AutomationCache:
                 if isinstance(res, str) and key_upper in res.upper():
                     return True
 
-        # 3. Search JQL strings in triggers, conditions, actions
-        if self._jql_mentions_project(rule, key_upper):
+        # 3. Search serialized rule for any project reference (JQL, action configs, etc.)
+        if self._rule_json_mentions_project(rule, key_upper, project_id):
             return True
 
         return False
 
-    def _jql_mentions_project(self, rule: dict, key_upper: str) -> bool:
-        """Search for project key references in JQL strings within the rule."""
-        # Serialize rule to string and search for project key in JQL-like patterns
-        # We look for patterns like: project = KEY, project in (KEY, ...), project=KEY
-        rule_str = json.dumps(rule)
+    def _rule_json_mentions_project(self, rule: dict, key_upper: str, project_id: str | None) -> bool:
+        """Search for any project references in the serialized rule.
 
-        # Match project key in JQL context to avoid false positives
-        # Patterns: project = HRJ, project in (HR, HRJ), project="HRJ"
+        Covers JQL strings, action configs (create issue, move issue, etc.),
+        and any other field that embeds a project key or ID.
+        """
+        rule_str = json.dumps(rule)
+        esc_key = re.escape(key_upper)
+
+        # 1. JQL context: project = KEY, project in (KEY, ...), project="KEY"
         jql_pattern = re.compile(
-            r'project\s*(?:=|in\s*\()[^)]*\b' + re.escape(key_upper) + r'\b',
+            r'project\s*(?:=|in\s*\()[^)]*\b' + esc_key + r'\b',
             re.IGNORECASE,
         )
         if jql_pattern.search(rule_str):
             return True
 
-        # Also check for project key in action target project configs
-        # e.g. "projectKey":"HRJ" or "project":{"key":"HRJ"}
-        key_pattern = re.compile(
-            r'"(?:projectKey|project_key)"\s*:\s*"' + re.escape(key_upper) + r'"',
-            re.IGNORECASE,
+        # 2. Any JSON field whose name contains "project" (case-insensitive)
+        #    with a string value matching the project key.
+        #    Catches: "projectKey":"KEY", "project_key":"KEY",
+        #    "destinationProject":"KEY", "targetProject":"KEY", etc.
+        project_field_pattern = re.compile(
+            r'"[^"]*[Pp]roject[^"]*"\s*:\s*"' + esc_key + r'"',
         )
-        if key_pattern.search(rule_str):
+        if project_field_pattern.search(rule_str):
             return True
+
+        # 3. Nested key/id inside a project object:
+        #    "project":{"key":"KEY"} or "project":{"id":"12345"}
+        nested_key_pattern = re.compile(
+            r'"[^"]*[Pp]roject[^"]*"\s*:\s*\{[^}]*"key"\s*:\s*"' + esc_key + r'"',
+        )
+        if nested_key_pattern.search(rule_str):
+            return True
+
+        if project_id:
+            nested_id_pattern = re.compile(
+                r'"[^"]*[Pp]roject[^"]*"\s*:\s*\{[^}]*"id"\s*:\s*"?' + re.escape(project_id) + r'"?',
+            )
+            if nested_id_pattern.search(rule_str):
+                return True
+
+            # 4. Any JSON field with "project" in the name holding the numeric ID
+            #    e.g. "projectId":"12345" or "projectId":12345
+            project_id_pattern = re.compile(
+                r'"[^"]*[Pp]roject[^"]*[Ii]d[^"]*"\s*:\s*"?' + re.escape(project_id) + r'\b',
+            )
+            if project_id_pattern.search(rule_str):
+                return True
 
         return False
 
