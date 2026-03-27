@@ -206,18 +206,3 @@ Add to `.mcp.json`:
   }
 }
 ```
-
----
-
-## Example: Debugging an Automation Rule Failure
-
-A user reports that selecting "Banners" in the Copy field on a BM Epic doesn't create the expected child ticket.
-
-1. `list_automation_rules(project_key="BM")` — find the relevant rule
-2. `get_automation_rule_detail(rule_id=1785)` — inspect trigger, conditions, and create-issue action
-3. `get_automation_rule_audit_log(rule_id=1785)` — see that every execution is `SOME_ERRORS`
-4. `get_automation_audit_item(item_id=...)` — find the error: `"Request Type - Field is required."`
-5. `get_createmeta_fields(project_key="CL", issue_type_id="13602")` — discover the allowed values for the missing field
-6. Compare with a working sibling rule (`get_automation_rule_detail(rule_id=1783)`) to confirm the fix
-
-**Root cause:** the rule creates a Blog/Brand issue in the CL project but doesn't set the required Request Type field. The working Blog rule sets it to "Blog Article"; the Banners rule needs "Brand Material".
