@@ -77,6 +77,37 @@ async def get_issue(client: JiraClient, issue_key: str, fields: str | None = Non
         return json.dumps({"error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"})
 
 
+async def get_issue_changelog(client: JiraClient, issue_key: str, field: str | None = None) -> str:
+    """Get the changelog (edit history) for an issue, optionally filtered to a specific field."""
+    try:
+        issue = await client.get_issue(issue_key, fields="summary", expand="changelog")
+        changelog = issue.get("changelog", {})
+        histories = changelog.get("histories", [])
+
+        changes: list[dict] = []
+        for h in histories:
+            for item in h.get("items", []):
+                if field and item.get("field", "").lower() != field.lower():
+                    continue
+                changes.append({
+                    "when": h.get("created"),
+                    "who": _user(h.get("author")),
+                    "field": item.get("field"),
+                    "from": item.get("fromString"),
+                    "to": item.get("toString"),
+                })
+
+        return json.dumps({
+            "key": issue.get("key"),
+            "total_history_entries": changelog.get("total", len(histories)),
+            "changes": changes,
+        }, indent=2)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return json.dumps({"error": f"Issue not found: {issue_key}"})
+        return json.dumps({"error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"})
+
+
 def _name(obj: dict | None) -> str | None:
     return obj.get("name") if obj else None
 

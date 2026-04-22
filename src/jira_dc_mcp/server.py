@@ -651,6 +651,26 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 
+    {
+        "name": "get_issue_changelog",
+        "description": (
+            "Get the changelog (edit history) for an issue. Shows who changed what field, "
+            "when, and from/to values. Optionally filter to a single field name "
+            "(e.g. 'assignee', 'status', 'priority'). Use to trace how an issue was modified over time."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue_key": {"type": "string", "description": "Issue key (e.g. 'PROJ-123')"},
+                "field": {
+                    "type": "string",
+                    "description": "Optional field name to filter changes (e.g. 'assignee', 'status'). Omit for all changes.",
+                },
+            },
+            "required": ["issue_key"],
+        },
+    },
+
     # ── Users ──────────────────────────────────────────────────────────────
     {
         "name": "get_user",
@@ -846,6 +866,8 @@ async def _dispatch(
         # Issues
         case "get_issue":
             return await issues.get_issue(client, args["issue_key"], args.get("fields"))
+        case "get_issue_changelog":
+            return await issues.get_issue_changelog(client, args["issue_key"], args.get("field"))
 
         # Users
         case "get_user":

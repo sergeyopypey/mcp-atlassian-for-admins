@@ -574,11 +574,13 @@ class JiraClient:
     # Issues
     # ======================================================================
 
-    async def get_issue(self, issue_key: str, fields: str | None = None) -> dict:
+    async def get_issue(self, issue_key: str, fields: str | None = None, expand: str | None = None) -> dict:
         """Get a single issue by key. Optionally restrict to specific fields."""
         params: dict[str, str] = {}
         if fields:
             params["fields"] = fields
+        if expand:
+            params["expand"] = expand
         return await self.get(f"/rest/api/2/issue/{quote(issue_key)}", params=params or None)
 
     async def get_user(self, key: str) -> dict:
