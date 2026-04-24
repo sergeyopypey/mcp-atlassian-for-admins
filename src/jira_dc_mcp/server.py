@@ -250,6 +250,25 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "list_custom_fields_usage",
+        "description": (
+            "List custom fields with usage stats from Jira DC 10's /customFields endpoint: "
+            "issuesWithValue (issue count), projectsCount/keys, screensCount, lastValueUpdate. "
+            "Filters: search (substring on name), unused_only (issuesWithValue=0), "
+            "project_key (limits to fields scoped to that project), min_issues (>= N issues). "
+            "Sorted by issue count desc. Useful for auditing dead custom fields."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string", "description": "Case-insensitive substring filter on field name"},
+                "unused_only": {"type": "boolean", "description": "Only fields with zero issues using them", "default": False},
+                "project_key": {"type": "string", "description": "Project key (e.g. FINJ) — limits to fields scoped to that project or isAllProjects=true"},
+                "min_issues": {"type": "integer", "description": "Only fields with issuesWithValue >= this"},
+            },
+        },
+    },
+    {
         "name": "get_field_configuration",
         "description": (
             "Get field configuration items — shows which fields are required, hidden, "
@@ -701,6 +720,36 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["query"],
         },
     },
+    {
+        "name": "get_user_groups",
+        "description": (
+            "Get groups a user belongs to, by user key or username. "
+            "Returns a list of group names. Useful for tracing how a user gained project-role access."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "key": {"type": "string", "description": "User key (e.g. JIRAUSER17908) or username"},
+            },
+            "required": ["key"],
+        },
+    },
+    {
+        "name": "get_group_members",
+        "description": (
+            "List members of a Jira group. Auto-paginates. "
+            "Useful for auditing project-role membership when roles are populated by groups."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "group_name": {"type": "string", "description": "Exact group name (e.g. jira-jsm-finj-agents)"},
+                "include_inactive": {"type": "boolean", "description": "Include inactive users (default false)"},
+                "max_results": {"type": "integer", "description": "Cap on returned members (default 1000)"},
+            },
+            "required": ["group_name"],
+        },
+    },
 ]
 
 
@@ -772,6 +821,14 @@ async def _dispatch(
         # Fields
         case "list_fields":
             return await fields.list_fields(client, args.get("custom_only", False), args.get("field_ids"))
+        case "list_custom_fields_usage":
+            return await fields.list_custom_fields_usage(
+                client,
+                args.get("search"),
+                args.get("unused_only", False),
+                args.get("project_key"),
+                args.get("min_issues"),
+            )
         case "get_field_configuration":
             return await fields.get_field_configuration(client, _int(args, "fc_id"))
         case "get_field_configuration_scheme":
@@ -874,6 +931,15 @@ async def _dispatch(
             return await users.get_user(client, args["key"])
         case "find_users":
             return await users.find_users(client, args["query"], args.get("max_results", 10))
+        case "get_user_groups":
+            return await users.get_user_groups(client, args["key"])
+        case "get_group_members":
+            return await users.get_group_members(
+                client,
+                args["group_name"],
+                args.get("include_inactive", False),
+                args.get("max_results", 1000),
+            )
 
         case _:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})

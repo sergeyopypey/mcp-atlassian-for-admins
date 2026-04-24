@@ -168,6 +168,18 @@ class JiraClient:
     async def list_fields(self) -> list[dict]:
         return await self.get("/rest/api/2/field")
 
+    async def list_custom_fields_usage(self, max_results: int = 1000) -> dict:
+        """Jira DC 10 endpoint with per-field usage stats.
+
+        NOTE: server-side pagination is broken on 10.3.12 (startAt>0 returns empty),
+        so this method does a single call with maxResults up to 1000 (server cap).
+        Returns the raw response dict: {startAt, maxResults, total, isLast, values}.
+        """
+        return await self.get(
+            "/rest/api/2/customFields",
+            params={"startAt": 0, "maxResults": min(max_results, 1000)},
+        )
+
     # -- issue link types ----------------------------------------------------
     async def list_issue_link_types(self) -> list[dict]:
         data = await self.get("/rest/api/2/issueLinkType")
@@ -590,6 +602,21 @@ class JiraClient:
     async def find_users(self, query: str, max_results: int = 10) -> list[dict]:
         """Search for users by username, name, or email."""
         return await self.get("/rest/api/2/user/search", params={"username": query, "maxResults": max_results})
+
+    async def get_user_groups(self, key: str) -> list[dict]:
+        """Get groups a user belongs to. /rest/api/2/user/groups is not paginated."""
+        return await self.get("/rest/api/2/user/groups", params={"key": key})
+
+    async def get_group_members(
+        self, group_name: str, include_inactive: bool = False, max_results: int = 1000
+    ) -> list[dict]:
+        """Get members of a group. /rest/api/2/group/member is paginated under `values`."""
+        return await self.get_paged(
+            "/rest/api/2/group/member",
+            key="values",
+            params={"groupname": group_name, "includeInactiveUsers": str(include_inactive).lower()},
+            page_size=min(max_results, 50),
+        )
 
     # Automation for Jira (A4J) — /rest/cb-automation/
     # ======================================================================

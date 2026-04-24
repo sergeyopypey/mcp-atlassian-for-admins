@@ -41,6 +41,32 @@
 
 ## What's Missing
 
+### ScriptRunner Custom REST Endpoints (Java API)
+
+The Jira DC REST API has significant gaps. ScriptRunner REST endpoints can expose data via Jira's Java API that is otherwise inaccessible. These endpoints would live under `/rest/scriptrunner/latest/custom/` and return JSON.
+
+#### P0 — Fixes Broken Tools
+
+- [ ] **`/fieldConfigurations`** — All field configurations with their field items (required/hidden/renderer per field). Uses `FieldLayoutManager`, `FieldConfigSchemeManager`. **Fixes**: `get_field_configuration`, `get_field_configuration_scheme`, partial `find_field_usage`.
+- [ ] **`/screenSchemes`** — Screen schemes with operation mappings (Create/Edit/View → Screen). Uses `ScreenSchemeManager`. **Fixes**: replaces reconstructed screen schemes with authoritative data.
+- [ ] **`/issueTypeScreenSchemes`** — Issue type screen schemes mapping issue types to screen schemes. Uses `IssueTypeScreenSchemeManager`. **Fixes**: currently returns 404, no workaround exists.
+
+#### P1 — Replaces Fragile/Incomplete Data
+
+- [ ] **`/workflowTransitionDetails`** — Full transition rule configuration: post-function parameters (e.g., which field a "Set Field Value" targets), condition arguments, validator arguments. Currently only class names are available via XML parsing.
+- [ ] **`/customFieldContexts`** — Custom field contexts with project/issue type scoping. Uses `FieldConfigSchemeManager`. **Replaces**: fragile internal API `/rest/internal/2/field/{id}/context` which could break on upgrades.
+- [ ] **`/listeners`** — All registered event listeners (ScriptRunner, built-in, plugin-based). Completely invisible to REST API, critical for understanding event handling and side effects.
+
+#### P2 — New Visibility
+
+- [ ] **`/scheduledServices`** — Jira services running on cron (mail handlers, backup services, etc.). Uses `ServiceManager`. Invisible to REST API.
+- [ ] **`/applicationLinks`** — Application links to Confluence, Bitbucket, Bamboo, etc. Trust relationships and authentication config. Uses `ApplicationLinkService`.
+- [ ] **`/effectivePermissions`** — Resolves actual effective permissions for a user on a project. Walks groups, roles, and grants to answer "who can actually do X on project Y". Uses `PermissionManager`.
+
+#### P3 — Nice to Have
+
+- [ ] **`/pluginInventory`** — Installed apps/plugins with versions, status (enabled/disabled), and license info. Uses `PluginAccessor`.
+
 ### Medium Impact
 
 - [x] **`list_active_workflows`** — Filters out backup/copy/deprecated workflows by name pattern and cross-references with workflow schemes to show `inUse` flag. `list_workflows` renamed to `list_all_workflows`.

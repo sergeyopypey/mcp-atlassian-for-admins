@@ -180,6 +180,68 @@ async def get_createmeta_fields(
     return json.dumps(result, indent=2)
 
 
+async def list_custom_fields_usage(
+    client: JiraClient,
+    search: str | None = None,
+    unused_only: bool = False,
+    project_key: str | None = None,
+    min_issues: int | None = None,
+) -> str:
+    """List custom fields with per-field usage stats (Jira DC 10 endpoint).
+
+    Returns: id, name, type, searcherKey, projectsCount, projectKeys (resolved),
+    isAllProjects, screensCount, issuesWithValue, lastValueUpdate (ISO + epoch).
+    """
+    from datetime import datetime, timezone
+
+    raw = await client.list_custom_fields_usage()
+    values = raw.get("values", [])
+
+    projects = await client.list_projects()
+    proj_map = {int(p["id"]): p["key"] for p in projects}
+
+    target_pid = None
+    if project_key:
+        target_pid = next((pid for pid, k in proj_map.items() if k == project_key), None)
+        if target_pid is None:
+            return json.dumps({"error": f"Unknown project_key: {project_key}"})
+
+    s = search.lower() if search else None
+    result = []
+    for f in values:
+        if s and s not in (f.get("name") or "").lower():
+            continue
+        if unused_only and (f.get("issuesWithValue") or 0) != 0:
+            continue
+        if min_issues is not None and (f.get("issuesWithValue") or 0) < min_issues:
+            continue
+        if target_pid is not None and not f.get("isAllProjects") and target_pid not in (f.get("projectIds") or []):
+            continue
+
+        lvu = f.get("lastValueUpdate")
+        result.append({
+            "id": f.get("id"),
+            "name": f.get("name"),
+            "type": f.get("type"),
+            "searcherKey": f.get("searcherKey"),
+            "projectsCount": f.get("projectsCount"),
+            "projectKeys": [proj_map.get(pid, f"#{pid}") for pid in (f.get("projectIds") or [])],
+            "isAllProjects": f.get("isAllProjects", False),
+            "screensCount": f.get("screensCount"),
+            "issuesWithValue": f.get("issuesWithValue"),
+            "lastValueUpdate": datetime.fromtimestamp(lvu / 1000, tz=timezone.utc).isoformat() if lvu else None,
+            "lastValueUpdateEpoch": lvu,
+        })
+
+    result.sort(key=lambda r: -(r["issuesWithValue"] or 0))
+
+    return json.dumps({
+        "total": raw.get("total"),
+        "returned": len(result),
+        "fields": result,
+    }, indent=2)
+
+
 async def get_field_contexts(client: JiraClient, field_id: str) -> str:
     """Get custom field contexts — which projects and issue types the field is scoped to.
 
