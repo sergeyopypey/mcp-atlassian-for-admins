@@ -4,7 +4,7 @@
  * Resolves actual effective permissions for a user on a project by walking
  * groups, project roles, and permission grants. Answers "who can actually do X".
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/effectivePermissions
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpEffectivePermissions
  * Query params:
  *   projectKey (required) - project to check
  *   username   (optional) - specific user to check (returns all granted permissions for that user)
@@ -32,7 +32,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-effectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpEffectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
     PermissionManager permissionManager = ComponentAccessor.getComponent(PermissionManager)
     ProjectManager projectManager = ComponentAccessor.projectManager
     UserManager userManager = ComponentAccessor.userManager

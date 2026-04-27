@@ -5,7 +5,7 @@
  * built-in, plugin-provided, and ScriptRunner listeners. Completely invisible
  * to the REST API.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/listeners
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpListeners
  *
  * Response: { "listeners": [ { "name", "className", "events", "source" } ] }
  */
@@ -23,7 +23,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-listeners(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpListeners(httpMethod: "GET") { MultivaluedMap queryParams ->
     ListenerManager listenerManager = ComponentAccessor.getComponent(ListenerManager)
 
     List<Map<String, Object>> results = []

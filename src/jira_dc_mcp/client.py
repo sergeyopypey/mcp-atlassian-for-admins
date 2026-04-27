@@ -229,7 +229,7 @@ class JiraClient:
         try:
             client = await self._get_client()
             resp = await client.get(
-                "/rest/scriptrunner/latest/custom/exportWorkflow",
+                "/rest/scriptrunner/latest/custom/jiraMcpExportWorkflow",
                 params={"workflowName": workflow_name},
             )
             resp.raise_for_status()

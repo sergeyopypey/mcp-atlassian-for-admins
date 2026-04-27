@@ -4,7 +4,7 @@
  * Returns all field configurations with their field items (required, hidden, renderer, description).
  * This data is unavailable via REST API on Jira DC 10.x (GET /rest/api/2/fieldconfiguration → 404).
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/fieldConfigurations
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpFieldConfigurations
  * Query params:
  *   id (optional) - return a single field configuration by ID
  *
@@ -28,7 +28,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-fieldConfigurations(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpFieldConfigurations(httpMethod: "GET") { MultivaluedMap queryParams ->
     FieldLayoutManager fieldLayoutManager = ComponentAccessor.getComponent(FieldLayoutManager)
     FieldManager fieldManager = ComponentAccessor.fieldManager
 

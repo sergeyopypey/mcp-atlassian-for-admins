@@ -4,7 +4,7 @@
  * Returns all screen schemes with their operation → screen mappings
  * (Create/Edit/View/Default). Unavailable via REST API on Jira DC 10.x.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/screenSchemes
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpScreenSchemes
  * Query params:
  *   id (optional) - return a single screen scheme by ID
  *
@@ -28,7 +28,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-screenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
     FieldScreenSchemeManager screenSchemeManager = ComponentAccessor.getComponent(FieldScreenSchemeManager)
 
     String filterById = queryParams.getFirst("id") as String

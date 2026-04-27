@@ -4,7 +4,7 @@
  * Returns all Jira scheduled services (mail handlers, backup services, etc.).
  * These run on cron schedules and are invisible to the REST API.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/scheduledServices
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpScheduledServices
  *
  * Response: { "services": [ { "id", "name", "className", "delay", "properties" } ] }
  */
@@ -22,7 +22,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-scheduledServices(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpScheduledServices(httpMethod: "GET") { MultivaluedMap queryParams ->
     ServiceManager serviceManager = ComponentAccessor.getComponent(ServiceManager)
 
     Collection<JiraServiceContainer> services = serviceManager.getServices()

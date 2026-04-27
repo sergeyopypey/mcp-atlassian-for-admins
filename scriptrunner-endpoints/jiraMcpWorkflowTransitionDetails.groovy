@@ -5,7 +5,7 @@
  * condition arguments, and validator arguments. The REST API only exposes class names
  * via XML parsing — this endpoint reveals the actual configuration.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/workflowTransitionDetails
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpWorkflowTransitionDetails
  * Query params:
  *   workflowName (required) - exact workflow name
  *   transitionId (optional) - filter to a single transition
@@ -36,7 +36,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-workflowTransitionDetails(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpWorkflowTransitionDetails(httpMethod: "GET") { MultivaluedMap queryParams ->
     WorkflowManager workflowManager = ComponentAccessor.workflowManager
 
     String workflowName = queryParams.getFirst("workflowName") as String

@@ -4,7 +4,7 @@
  * Returns all issue type screen schemes with their issue type → screen scheme mappings
  * and associated projects. Unavailable via REST API on Jira DC 10.x.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/issueTypeScreenSchemes
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpIssueTypeScreenSchemes
  * Query params:
  *   id (optional) - return a single scheme by ID
  *
@@ -29,7 +29,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-issueTypeScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpIssueTypeScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
     IssueTypeScreenSchemeManager issueTypeScreenSchemeManager = ComponentAccessor.getComponent(IssueTypeScreenSchemeManager)
     IssueTypeManager issueTypeManager = ComponentAccessor.getObject(IssueTypeManager)
 

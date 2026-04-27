@@ -4,7 +4,7 @@
  * Returns custom field contexts with project and issue type scoping.
  * Replaces the fragile internal API /rest/internal/2/field/{id}/context.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/customFieldContexts
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpCustomFieldContexts
  * Query params:
  *   fieldId (optional) - filter to a single field (e.g., "customfield_10001")
  *
@@ -28,7 +28,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-customFieldContexts(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpCustomFieldContexts(httpMethod: "GET") { MultivaluedMap queryParams ->
     CustomFieldManager customFieldManager = ComponentAccessor.customFieldManager
     IssueTypeManager issueTypeManager = ComponentAccessor.getObject(IssueTypeManager)
 

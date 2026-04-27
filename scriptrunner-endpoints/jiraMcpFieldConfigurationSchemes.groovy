@@ -4,7 +4,7 @@
  * Returns all field configuration schemes with their issue type → field configuration mappings
  * and associated projects. Unavailable via REST API on Jira DC 10.x.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/fieldConfigurationSchemes
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpFieldConfigurationSchemes
  * Query params:
  *   id (optional) - return a single scheme by ID
  *
@@ -29,7 +29,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-fieldConfigurationSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpFieldConfigurationSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
     FieldLayoutManager fieldLayoutManager = ComponentAccessor.getComponent(FieldLayoutManager)
     ProjectManager projectManager = ComponentAccessor.projectManager
     IssueTypeManager issueTypeManager = ComponentAccessor.getObject(IssueTypeManager)

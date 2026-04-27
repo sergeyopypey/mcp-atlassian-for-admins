@@ -4,7 +4,7 @@
  * Returns all application links (Confluence, Bitbucket, Bamboo, etc.)
  * with their type, URL, and authentication configuration.
  *
- * Endpoint: GET /rest/scriptrunner/latest/custom/applicationLinks
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpApplicationLinks
  *
  * Response: { "applicationLinks": [ { "id", "name", "type", "displayUrl", "rpcUrl", "isPrimary", "authType" } ] }
  */
@@ -23,7 +23,7 @@ import javax.ws.rs.core.Response
 
 @BaseScript CustomEndpointDelegate delegate
 
-applicationLinks(httpMethod: "GET") { MultivaluedMap queryParams ->
+jiraMcpApplicationLinks(httpMethod: "GET") { MultivaluedMap queryParams ->
     ApplicationLinkService appLinkService = ComponentLocator.getComponent(ApplicationLinkService)
 
     if (!appLinkService) {
