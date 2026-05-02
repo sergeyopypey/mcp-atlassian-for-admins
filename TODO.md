@@ -25,8 +25,6 @@
 | Automation rules (886 rules) | `list_automation_rules`, `get_automation_rule_detail`, `refresh_automation_cache` | Working |
 | Field usage on screens | `find_field_usage` | Working (screens only) |
 | Custom field contexts | `get_field_contexts` | Working (internal API, unsupported) |
-| Scheme overview | `list_all_scheme_types`, `dump_all_schemes` | Working |
-| Full instance dump | `dump_full_instance` | Working |
 | Bulk dumps | `dump_workflows`, `dump_automation_rules` | Working |
 | Config chain analysis | `analyze_project_config_chain` | Working |
 | Free-text config search | `search_config` | Working |

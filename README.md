@@ -48,10 +48,8 @@ Jira DC 10 exposes a single bulk-export endpoint for automation rules — no per
 | Tool | Description |
 |---|---|
 | `dump_global_config` | Full instance config: fields, issue types, statuses, resolutions, priorities, link types |
-| `dump_all_schemes` | Every scheme in the instance with associations |
 | `dump_workflows` | All workflows with statuses, transitions, conditions, validators, post-functions |
 | `dump_automation_rules` | All A4J rules from cache |
-| `dump_full_instance` | Everything in one structured JSON |
 
 ### Projects
 
@@ -106,7 +104,6 @@ Jira DC 10 exposes a single bulk-export endpoint for automation rules — no per
 | `get_issue_type_scheme` | Which issue types are available in a scheme |
 | `get_priority_scheme` | Priority scheme (DC 10 feature) |
 | `get_issue_security_scheme` | Issue security scheme with levels and members |
-| `list_all_scheme_types` | Overview of every scheme type and count |
 
 ### Automation (A4J)
 

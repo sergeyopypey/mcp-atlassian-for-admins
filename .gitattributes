@@ -1,0 +1,11 @@
+# Enforce LF line endings for all text files — in the repository blobs and in
+# the working tree on every platform. This overrides each contributor's local
+# core.autocrlf setting, so checkouts are consistent regardless of OS.
+* text=auto eol=lf
+
+# Binary files git must never normalize.
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

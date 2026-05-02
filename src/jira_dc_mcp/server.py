@@ -34,16 +34,6 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
-        "name": "dump_all_schemes",
-        "description": (
-            "Dump every scheme in the instance: workflow schemes, issue type schemes, "
-            "issue type screen schemes, screen schemes, field configurations, "
-            "field configuration schemes, permission schemes, notification schemes, "
-            "issue security schemes, priority schemes. Shows IDs, names, and associations."
-        ),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
         "name": "dump_workflows",
         "description": (
             "Dump all workflows with their statuses, transitions, conditions, validators, "
@@ -57,16 +47,6 @@ TOOLS: list[dict[str, Any]] = [
             "Dump all Automation for Jira (A4J) rules from the in-memory cache. "
             "Includes triggers, conditions, actions, state, and execution counts. "
             "Cache is refreshed every 10 minutes."
-        ),
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "dump_full_instance",
-        "description": (
-            "Nuclear option: dump EVERYTHING — global config, all schemes, all workflows, "
-            "all automation rules, all screens with fields, all project configs. "
-            "WARNING: This can be very large and slow on big instances. "
-            "Prefer targeted dumps when possible."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
@@ -404,11 +384,6 @@ TOOLS: list[dict[str, Any]] = [
             },
             "required": ["scheme_id"],
         },
-    },
-    {
-        "name": "list_all_scheme_types",
-        "description": "Overview of every scheme type and how many of each exist.",
-        "inputSchema": {"type": "object", "properties": {}},
     },
 
     # ── Automation (A4J) tools ─────────────────────────────────────────────
@@ -773,14 +748,10 @@ async def _dispatch(
         # Dump
         case "dump_global_config":
             return await dump.dump_global_config(client)
-        case "dump_all_schemes":
-            return await dump.dump_all_schemes(client)
         case "dump_workflows":
             return await dump.dump_workflows(client)
         case "dump_automation_rules":
             return await dump.dump_automation_rules(client, automation_cache)
-        case "dump_full_instance":
-            return await dump.dump_full_instance(client, automation_cache)
 
         # Projects
         case "list_projects":
@@ -855,8 +826,6 @@ async def _dispatch(
             return await schemes.get_issue_security_scheme(client, _int(args, "scheme_id"))
         case "get_priority_scheme":
             return await schemes.get_priority_scheme(client, _int(args, "scheme_id"))
-        case "list_all_scheme_types":
-            return await schemes.list_all_scheme_types(client)
 
         # Automation
         case "list_automation_rules":

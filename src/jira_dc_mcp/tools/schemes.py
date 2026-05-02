@@ -132,32 +132,3 @@ async def get_priority_scheme(client: JiraClient, scheme_id: int) -> str:
     """Get priority scheme (DC 10 feature)."""
     scheme = await client.get_priority_scheme(scheme_id)
     return json.dumps(scheme, indent=2)
-
-
-async def list_all_scheme_types(client: JiraClient) -> str:
-    """Overview of every scheme type and count."""
-    import asyncio
-
-    async def _safe_len(coro, label):
-        try:
-            data = await coro
-            return label, len(data)
-        except Exception:
-            return label, 0
-
-    results = await asyncio.gather(
-        _safe_len(client.list_workflow_schemes(), "workflowSchemes"),
-        _safe_len(client.list_issue_type_schemes(), "issueTypeSchemes"),
-        _safe_len(client.list_screens(), "screens"),
-        _safe_len(client.list_permission_schemes(), "permissionSchemes"),
-        _safe_len(client.list_notification_schemes(), "notificationSchemes"),
-        _safe_len(client.list_issue_security_schemes(), "issueSecuritySchemes"),
-        _safe_len(client.list_priority_schemes(), "prioritySchemes"),
-    )
-    result = {label: count for label, count in results}
-    # These endpoints are not available on DC 10.3.12
-    result["screenSchemes"] = "unavailable on DC 10"
-    result["issueTypeScreenSchemes"] = "unavailable on DC 10"
-    result["fieldConfigurations"] = "unavailable on DC 10"
-    result["fieldConfigurationSchemes"] = "unavailable on DC 10"
-    return json.dumps(result, indent=2)
