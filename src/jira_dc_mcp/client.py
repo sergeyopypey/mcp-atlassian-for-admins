@@ -443,7 +443,10 @@ class JiraClient:
         return await self.get_paged("/rest/api/2/notificationscheme", key="values")
 
     async def get_notification_scheme(self, scheme_id: int) -> dict:
-        return await self.get(f"/rest/api/2/notificationscheme/{scheme_id}", {"expand": "all"})
+        return await self.get(
+            f"/rest/api/2/notificationscheme/{scheme_id}",
+            {"expand": "notificationSchemeEvents"},
+        )
 
     # -- issue security schemes ----------------------------------------------
     async def list_issue_security_schemes(self) -> list[dict]:
@@ -604,8 +607,13 @@ class JiraClient:
         return await self.get("/rest/api/2/user/search", params={"username": query, "maxResults": max_results})
 
     async def get_user_groups(self, key: str) -> list[dict]:
-        """Get groups a user belongs to. /rest/api/2/user/groups is not paginated."""
-        return await self.get("/rest/api/2/user/groups", params={"key": key})
+        """Get groups a user belongs to, via the user resource's groups expansion.
+
+        There is no working /rest/api/2/user/groups endpoint on Jira DC; the
+        groups are obtained by expanding the user resource instead.
+        """
+        user = await self.get("/rest/api/2/user", params={"key": key, "expand": "groups"})
+        return (user.get("groups") or {}).get("items", [])
 
     async def get_group_members(
         self, group_name: str, include_inactive: bool = False, max_results: int = 1000

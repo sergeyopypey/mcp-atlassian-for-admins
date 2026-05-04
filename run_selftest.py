@@ -64,8 +64,8 @@ PER_CALL_TIMEOUT = 45.0          # seconds per individual tool call
 DEFAULT_OUT_DIR = ROOT / "selftest-output"
 
 # Worst-to-best ranking used to roll variant statuses up to a tool status.
-_STATUS_RANK = {"error": 4, "timeout": 3, "tool_error": 2, "pass": 1, "skipped": 0}
-_ICON = {"pass": "PASS", "tool_error": "WARN", "error": "FAIL",
+_STATUS_RANK = {"error": 5, "timeout": 4, "tool_error": 3, "empty": 2, "pass": 1, "skipped": 0}
+_ICON = {"pass": "PASS", "empty": "EMPT", "tool_error": "WARN", "error": "FAIL",
          "timeout": "TIME", "skipped": "SKIP"}
 _PHASE_NAMES = {
     1: "Phase 1 - zero-arg discovery",
@@ -75,6 +75,27 @@ _PHASE_NAMES = {
 }
 
 DispatchFn = Callable[[JiraClient, AutomationCache, str, dict], Awaitable[str]]
+
+# Which tool produces each harvest key — used to auto-resolve --only prerequisites.
+# Keys absent here are produced in Phase 0 (always available, no prerequisite tool).
+_HARVEST_PRODUCERS = {
+    "project_keys": "list_projects",
+    "field_ids": "list_fields",
+    "custom_field_ids": "list_fields",
+    "workflow_names": "list_active_workflows",
+    "screen_ids": "list_screens",
+    "workflow_scheme_ids": "list_workflow_schemes",
+    "screen_scheme_ids": "list_screen_schemes",
+    "permission_scheme_ids": "list_permission_schemes",
+    "notification_scheme_ids": "list_notification_schemes",
+    "board_ids": "list_boards",
+    "service_desk_ids": "list_service_desks",
+    "rule_ids": "list_automation_rules",
+    "createmeta_pairs": "get_project_config",
+    "user_keys": "find_users",
+    "audit_item_ids": "get_automation_audit_log",
+    "group_names": "get_user_groups",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +120,7 @@ class ToolCase:
     skip_reason: str = "no live data discovered for a required parameter"
     timeout: float = PER_CALL_TIMEOUT
     branches: tuple[str, ...] = ()    # all parameter branches this tool can exercise
+    needs: tuple[str, ...] = ()       # harvest keys this tool requires to run at all
 
 
 @dataclass
@@ -157,7 +179,12 @@ async def _run_one(
 
     duration = (time.monotonic() - started) * 1000
     parsed = _try_parse_json(raw)
-    status = "tool_error" if _is_error(parsed) else "pass"
+    if _is_error(parsed):
+        status = "tool_error"
+    elif parsed == [] or parsed == {}:
+        status = "empty"          # call succeeded but returned no data
+    else:
+        status = "pass"
     return VariantResult(
         variant.label, variant.branch, variant.args, status, duration,
         result_bytes=len(raw or ""),
@@ -241,6 +268,7 @@ def _single(harvest_key: str, arg_name: str):
         if not vals:
             return None
         return [Variant("default", {arg_name: vals[0]})]
+    disc.needs = (harvest_key,)   # consumed by _build_test_plan to populate ToolCase.needs
     return disc
 
 
@@ -291,12 +319,20 @@ def _build_test_plan() -> list[ToolCase]:
             variants.append(Variant("project_key", {"project_key": pk}, branch="rules:project"))
         return variants
 
-    def disc_get_issue(h):
+    def _issue_key(h):
+        """A real discovered issue key, else the <project>-1 heuristic, else None."""
+        discovered = (h.get("issue_keys") or [None])[0]
+        if discovered:
+            return discovered, f"discovered issue key {discovered}"
         pk = (h.get("project_keys") or [None])[0]
-        if not pk:
+        if pk:
+            return f"{pk}-1", f"heuristic issue key {pk}-1 (issue-key discovery found none)"
+        return None, None
+
+    def disc_get_issue(h):
+        key, note = _issue_key(h)
+        if not key:
             return None
-        key = f"{pk}-1"
-        note = f"heuristic issue key {key} (no tool returns issue keys directly)"
         return [
             Variant("default fields", {"issue_key": key}, branch="issue:default_fields", note=note),
             Variant("explicit fields", {"issue_key": key, "fields": "summary,status"},
@@ -304,11 +340,9 @@ def _build_test_plan() -> list[ToolCase]:
         ]
 
     def disc_get_issue_changelog(h):
-        pk = (h.get("project_keys") or [None])[0]
-        if not pk:
+        key, note = _issue_key(h)
+        if not key:
             return None
-        key = f"{pk}-1"
-        note = f"heuristic issue key {key}"
         return [
             Variant("all changes", {"issue_key": key}, branch="changelog:all", note=note),
             Variant("field filter", {"issue_key": key, "field": "status"},
@@ -362,6 +396,14 @@ def _build_test_plan() -> list[ToolCase]:
             return None
         pk, itid = pairs[0]
         return [Variant("default", {"project_key": pk, "issue_type_id": itid})]
+
+    # Required harvest keys for closures that skip entirely without discovered data
+    # (the _single() factory tags its own; these are the hand-written closures).
+    disc_createmeta.needs = ("createmeta_pairs",)
+    disc_rule_audit_log.needs = ("rule_ids",)
+    disc_group_members.needs = ("group_names",)
+    disc_get_issue.needs = ("project_keys",)
+    disc_get_issue_changelog.needs = ("project_keys",)
 
     plan: list[ToolCase] = [
         # ---- Phase 1: zero-arg discovery -----------------------------------
@@ -460,7 +502,28 @@ def _build_test_plan() -> list[ToolCase]:
         # ---- Phase 4: cache-mutating, run last -----------------------------
         ToolCase("refresh_automation_cache", 4, _no_args),
     ]
+    # Populate each ToolCase.needs from its discover closure (set by _single()
+    # or the hand-written closures above).
+    for case in plan:
+        case.needs = tuple(getattr(case.discover, "needs", ()) or ())
     return plan
+
+
+def _resolve_prerequisites(plan: list[ToolCase], wanted: set[str]) -> set[str]:
+    """Expand a --only set to include the discovery tools the selection depends on."""
+    by_name = {c.name: c for c in plan}
+    effective = set(wanted)
+    queue = list(wanted)
+    while queue:
+        case = by_name.get(queue.pop())
+        if case is None:
+            continue
+        for key in case.needs:
+            producer = _HARVEST_PRODUCERS.get(key)
+            if producer and producer not in effective:
+                effective.add(producer)
+                queue.append(producer)
+    return effective
 
 
 # ---------------------------------------------------------------------------
@@ -579,16 +642,36 @@ async def run_self_test(
         except Exception:
             pass
 
+    # Phase 0 — discover a real issue key (no MCP tool returns issue keys).
+    try:
+        data = await client.get(
+            "/rest/api/2/search",
+            params={"jql": "order by updated DESC", "maxResults": 1, "fields": "key"},
+        )
+        _add(harvest, "issue_keys", [i.get("key") for i in data.get("issues", [])])
+    except Exception:
+        pass
+
     plan = _build_test_plan()
     registered = {t["name"] for t in TOOLS}
     planned_names = {c.name for c in plan}
+
+    # When --only is used, auto-include the discovery tools the selection depends
+    # on, so any tool can be tested in isolation without manually listing its deps.
+    effective_only = only_set
+    if only_set is not None:
+        effective_only = _resolve_prerequisites(plan, only_set)
+        added = sorted(effective_only - only_set)
+        if added:
+            print(f"--only: also running {len(added)} prerequisite discovery "
+                  f"tool(s): {', '.join(added)}", flush=True)
 
     results: list[dict] = []
     current_phase: int | None = None
     for case in plan:
         if case.name not in registered:
             continue  # plan references a tool no longer in the registry
-        if only_set is not None and case.name not in only_set:
+        if effective_only is not None and case.name not in effective_only:
             continue
         if case.phase != current_phase:
             current_phase = case.phase
@@ -617,7 +700,7 @@ async def run_self_test(
 
     # Tools in the registry that the plan does not cover (e.g. newly added).
     for name in sorted(registered - planned_names):
-        if only_set is not None and name not in only_set:
+        if effective_only is not None and name not in effective_only:
             continue
         results.append({
             "tool": name, "phase": 99, "status": "skipped", "variantsRun": 0,
@@ -626,14 +709,14 @@ async def run_self_test(
         _print_skip(name, "not covered by the self-test plan")
 
     # ---- aggregate ---------------------------------------------------------
-    in_scope = registered if only_set is None else (registered & only_set)
+    in_scope = registered if effective_only is None else (registered & effective_only)
     tools_total = len(in_scope)
 
-    counts = {"pass": 0, "tool_error": 0, "error": 0, "timeout": 0, "skipped": 0}
+    counts = {"pass": 0, "empty": 0, "tool_error": 0, "error": 0, "timeout": 0, "skipped": 0}
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
 
-    v_counts = {"pass": 0, "tool_error": 0, "error": 0, "timeout": 0}
+    v_counts = {"pass": 0, "empty": 0, "tool_error": 0, "error": 0, "timeout": 0}
     exercised_branches: set[str] = set()
     failures: list[dict] = []
     skipped: list[dict] = []
@@ -650,7 +733,7 @@ async def run_self_test(
 
     planned_branches: set[str] = set()
     for case in plan:
-        if only_set is not None and case.name not in only_set:
+        if effective_only is not None and case.name not in effective_only:
             continue
         planned_branches.update(case.branches)
     branches_hit = exercised_branches & planned_branches
@@ -676,11 +759,13 @@ async def run_self_test(
             "toolsTotal": tools_total,
             "toolsRun": tools_run,
             "toolsPassed": counts["pass"],
+            "toolsEmpty": counts["empty"],
             "toolsToolError": counts["tool_error"],
             "toolsFailed": counts["error"] + counts["timeout"],
             "toolsSkipped": counts["skipped"],
             "variantsTotal": sum(v_counts.values()),
             "variantsPassed": v_counts["pass"],
+            "variantsEmpty": v_counts["empty"],
             "variantsToolError": v_counts["tool_error"],
             "variantsFailed": v_counts["error"] + v_counts["timeout"],
             "coverage": {
@@ -711,10 +796,12 @@ def _print_summary(report: dict) -> None:
     print("\n" + "=" * 72)
     print("SUMMARY")
     print("=" * 72)
-    print(f"  tools     : {s['toolsPassed']} passed  {s['toolsToolError']} tool-error  "
-          f"{s['toolsFailed']} failed  {s['toolsSkipped']} skipped   (of {s['toolsTotal']})")
-    print(f"  variants  : {s['variantsPassed']} passed  {s['variantsToolError']} tool-error  "
-          f"{s['variantsFailed']} failed   (of {s['variantsTotal']})")
+    print(f"  tools     : {s['toolsPassed']} passed  {s['toolsEmpty']} empty  "
+          f"{s['toolsToolError']} tool-error  {s['toolsFailed']} failed  "
+          f"{s['toolsSkipped']} skipped   (of {s['toolsTotal']})")
+    print(f"  variants  : {s['variantsPassed']} passed  {s['variantsEmpty']} empty  "
+          f"{s['variantsToolError']} tool-error  {s['variantsFailed']} failed   "
+          f"(of {s['variantsTotal']})")
     print(f"  coverage  : tools {cov['toolCoveragePct']}%   pass {cov['passCoveragePct']}%   "
           f"param-branches {cov['parameterBranchesExercised']}/"
           f"{cov['parameterBranchesPlanned']} ({cov['parameterBranchCoveragePct']}%)")
@@ -735,7 +822,8 @@ def _print_summary(report: dict) -> None:
 async def _main() -> int:
     ap = argparse.ArgumentParser(
         description="Run the Jira DC MCP server self-test and stream a live coverage report.")
-    ap.add_argument("--only", help="comma-separated allow-list of tool names to test")
+    ap.add_argument("--only", help="comma-separated allow-list of tool names to test; "
+                                   "discovery prerequisites are added automatically")
     ap.add_argument("--skip", help="comma-separated deny-list of tool names to exclude")
     ap.add_argument("--out-dir", metavar="PATH", default=str(DEFAULT_OUT_DIR),
                     help=f"directory for per-tool output files (default: {DEFAULT_OUT_DIR})")
