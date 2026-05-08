@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
-from ..client import JiraClient
+from ..client import JiraClient, bounded_gather
 
 logger = logging.getLogger(__name__)
 
@@ -37,30 +37,35 @@ async def list_fields(client: JiraClient, custom_only: bool = False, field_ids: 
 async def get_field_configuration(client: JiraClient, fc_id: int) -> str:
     """Get field configuration items — required, hidden, renderer, description per field.
 
-    NOTE: The /rest/api/2/fieldconfiguration endpoint is unavailable on Jira DC 10.3.12.
-    This tool will return empty results on affected versions.
+    Served by the jiraMcpFieldConfigurations ScriptRunner endpoint; the native
+    /rest/api/2/fieldconfiguration endpoint 404s on Jira DC.
     """
     fc_list = await client.list_field_configurations()
     if not fc_list:
         return json.dumps({
-            "error": "Field configuration API is unavailable on this Jira DC version",
+            "unsupported": "Field configuration data requires the jiraMcpFieldConfigurations "
+                           "ScriptRunner endpoint, which is not available on this instance",
             "fieldConfigurationId": fc_id,
         })
-    fc_name = next((fc["name"] for fc in fc_list if fc["id"] == fc_id), f"FC {fc_id}")
-    items = await client.get_field_configuration_items(fc_id)
+    fc = next((c for c in fc_list if c.get("id") == fc_id), None)
+    if fc is None:
+        return json.dumps({"error": f"Field configuration {fc_id} not found"})
 
     result = {
-        "fieldConfigurationId": fc_id,
-        "name": fc_name,
+        "fieldConfigurationId": fc.get("id"),
+        "name": fc.get("name"),
+        "description": fc.get("description", ""),
+        "isDefault": fc.get("isDefault", False),
         "fields": [
             {
-                "id": item.get("id"),
+                "fieldId": item.get("fieldId"),
+                "fieldName": item.get("fieldName"),
                 "description": item.get("description", ""),
                 "isRequired": item.get("isRequired", False),
                 "isHidden": item.get("isHidden", False),
-                "renderer": item.get("renderer"),
+                "renderer": item.get("rendererType"),
             }
-            for item in items
+            for item in fc.get("fields", [])
         ],
     }
     return json.dumps(result, indent=2)
@@ -69,20 +74,21 @@ async def get_field_configuration(client: JiraClient, fc_id: int) -> str:
 async def get_field_configuration_scheme(client: JiraClient, scheme_id: int) -> str:
     """Get field configuration scheme — maps issue types to field configurations.
 
-    NOTE: The /rest/api/2/fieldconfigurationscheme endpoint is unavailable on Jira DC 10.3.12.
-    This tool will return an error on affected versions.
+    Served by the jiraMcpFieldConfigurationSchemes ScriptRunner endpoint; the
+    native /rest/api/2/fieldconfigurationscheme endpoint 404s on Jira DC.
     """
     schemes = await client.list_field_configuration_schemes()
     if not schemes:
         return json.dumps({
-            "error": "Field configuration scheme API is unavailable on this Jira DC version",
+            "unsupported": "Field configuration scheme data requires the "
+                           "jiraMcpFieldConfigurationSchemes ScriptRunner endpoint, "
+                           "which is not available on this instance",
             "schemeId": scheme_id,
         })
-    scheme = next((s for s in schemes if s["id"] == scheme_id), None)
-    if not scheme:
+    scheme = next((s for s in schemes if s.get("id") == scheme_id), None)
+    if scheme is None:
         return json.dumps({"error": f"Field configuration scheme {scheme_id} not found"})
 
-    mappings = await client.get_field_configuration_scheme_mapping(scheme_id)
     result = {
         "id": scheme.get("id"),
         "name": scheme.get("name"),
@@ -90,56 +96,61 @@ async def get_field_configuration_scheme(client: JiraClient, scheme_id: int) -> 
         "mappings": [
             {
                 "issueTypeId": m.get("issueTypeId"),
-                "fieldConfigurationId": m.get("fieldConfigurationId"),
+                "issueTypeName": m.get("issueTypeName"),
+                "fieldConfigurationId": m.get("fieldConfigId"),
+                "fieldConfigurationName": m.get("fieldConfigName"),
             }
-            for m in mappings
+            for m in scheme.get("mappings", [])
         ],
+        "projects": scheme.get("projects", []),
     }
     return json.dumps(result, indent=2)
 
 
 async def find_field_usage(client: JiraClient, field_id: str) -> str:
     """Find where a field appears across all screens and field configurations."""
-    # Search screens
+    # Search screens — fanned out with bounded concurrency (one fetch per screen).
     screens = await client.list_screens()
-    screen_hits = []
-    for scr in screens:
-        try:
-            tabs = await client.get_screen_tabs(scr["id"])
-            for tab in tabs:
-                fields = await client.get_screen_tab_fields(scr["id"], tab["id"])
-                for f in fields:
-                    if f.get("id") == field_id:
-                        screen_hits.append({
-                            "screenId": scr["id"],
-                            "screenName": scr.get("name"),
-                            "tabId": tab["id"],
-                            "tabName": tab.get("name"),
-                        })
-        except Exception:
-            continue
 
-    # Search field configurations
+    async def _scan_screen(scr: dict) -> list[dict]:
+        hits: list[dict] = []
+        try:
+            full = await client.get_screen_full(scr["id"])
+        except Exception:
+            return hits
+        for tab in full.get("tabs", []):
+            for f in tab.get("fields", []):
+                if f.get("id") == field_id:
+                    hits.append({
+                        "screenId": scr["id"],
+                        "screenName": scr.get("name"),
+                        "tabId": tab.get("id"),
+                        "tabName": tab.get("name"),
+                    })
+        return hits
+
+    per_screen = await bounded_gather([_scan_screen(scr) for scr in screens])
+    screen_hits = [hit for hits in per_screen for hit in hits]
+
+    # Search field configurations (jiraMcpFieldConfigurations ScriptRunner endpoint;
+    # each config embeds its field items, so no per-config calls are needed).
     fc_list = await client.list_field_configurations()
     fc_hits = []
     for fc in fc_list:
-        try:
-            items = await client.get_field_configuration_items(fc["id"])
-            for item in items:
-                if item.get("id") == field_id:
-                    fc_hits.append({
-                        "fieldConfigId": fc["id"],
-                        "fieldConfigName": fc.get("name"),
-                        "isRequired": item.get("isRequired", False),
-                        "isHidden": item.get("isHidden", False),
-                    })
-        except Exception:
-            continue
+        for item in fc.get("fields", []):
+            if item.get("fieldId") == field_id:
+                fc_hits.append({
+                    "fieldConfigId": fc.get("id"),
+                    "fieldConfigName": fc.get("name"),
+                    "isRequired": item.get("isRequired", False),
+                    "isHidden": item.get("isHidden", False),
+                })
 
     result = {
         "fieldId": field_id,
         "screens": screen_hits,
-        "fieldConfigurations": fc_hits if fc_hits else "unavailable on DC 10 (API returns 404)",
+        "fieldConfigurations": fc_hits if fc_list else
+            "unavailable — jiraMcpFieldConfigurations ScriptRunner endpoint not deployed",
         "totalScreens": len(screen_hits),
         "totalFieldConfigs": len(fc_hits),
     }

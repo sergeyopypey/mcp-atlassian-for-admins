@@ -64,9 +64,10 @@ PER_CALL_TIMEOUT = 45.0          # seconds per individual tool call
 DEFAULT_OUT_DIR = ROOT / "selftest-output"
 
 # Worst-to-best ranking used to roll variant statuses up to a tool status.
-_STATUS_RANK = {"error": 5, "timeout": 4, "tool_error": 3, "empty": 2, "pass": 1, "skipped": 0}
-_ICON = {"pass": "PASS", "empty": "EMPT", "tool_error": "WARN", "error": "FAIL",
-         "timeout": "TIME", "skipped": "SKIP"}
+_STATUS_RANK = {"error": 6, "timeout": 5, "tool_error": 4, "empty": 3,
+                "pass": 2, "unsupported": 1, "skipped": 0}
+_ICON = {"pass": "PASS", "empty": "EMPT", "unsupported": "UNSUP", "tool_error": "WARN",
+         "error": "FAIL", "timeout": "TIME", "skipped": "SKIP"}
 _PHASE_NAMES = {
     1: "Phase 1 - zero-arg discovery",
     2: "Phase 2 - dependent tools",
@@ -179,16 +180,22 @@ async def _run_one(
 
     duration = (time.monotonic() - started) * 1000
     parsed = _try_parse_json(raw)
-    if _is_error(parsed):
+    if isinstance(parsed, dict) and "unsupported" in parsed:
+        status = "unsupported"    # tool ran; the Jira instance lacks this API
+        message = parsed["unsupported"]
+    elif _is_error(parsed):
         status = "tool_error"
+        message = parsed["error"]
     elif parsed == [] or parsed == {}:
         status = "empty"          # call succeeded but returned no data
+        message = None
     else:
         status = "pass"
+        message = None
     return VariantResult(
         variant.label, variant.branch, variant.args, status, duration,
         result_bytes=len(raw or ""),
-        error=parsed["error"] if status == "tool_error" else None,
+        error=message,
         note=variant.note,
         parsed=parsed,
         raw=raw,
@@ -397,6 +404,22 @@ def _build_test_plan() -> list[ToolCase]:
         pk, itid = pairs[0]
         return [Variant("default", {"project_key": pk, "issue_type_id": itid})]
 
+    def disc_field_config(h):
+        ids = h.get("field_config_ids") or []
+        if ids:
+            return [Variant("default", {"fc_id": ids[0]})]
+        return [Variant("synthetic id", {"fc_id": 10000},
+                        note="no field configs discovered — jiraMcpFieldConfigurations "
+                             "ScriptRunner endpoint may be undeployed")]
+
+    def disc_field_config_scheme(h):
+        ids = h.get("field_config_scheme_ids") or []
+        if ids:
+            return [Variant("default", {"scheme_id": ids[0]})]
+        return [Variant("synthetic id", {"scheme_id": 10000},
+                        note="no schemes discovered — jiraMcpFieldConfigurationSchemes "
+                             "ScriptRunner endpoint may be undeployed")]
+
     # Required harvest keys for closures that skip entirely without discovered data
     # (the _single() factory tags its own; these are the hand-written closures).
     disc_createmeta.needs = ("createmeta_pairs",)
@@ -453,14 +476,10 @@ def _build_test_plan() -> list[ToolCase]:
                  skip_reason="no issue security schemes exist on this instance"),
         ToolCase("get_priority_scheme", 2, _single("priority_scheme_ids", "scheme_id"),
                  skip_reason="no priority schemes exist on this instance"),
-        # fieldconfiguration list endpoints 404 on DC 10 — run with a synthetic
-        # id to confirm the tool degrades gracefully rather than skipping it.
-        ToolCase("get_field_configuration", 2,
-                 lambda h: [Variant("synthetic id", {"fc_id": 10000}, branch=None,
-                                    note="no discovery source — /fieldconfiguration 404s on DC 10")]),
-        ToolCase("get_field_configuration_scheme", 2,
-                 lambda h: [Variant("synthetic id", {"scheme_id": 10000}, branch=None,
-                                    note="no discovery source — endpoint 404s on DC 10")]),
+        # Field-config data comes from ScriptRunner endpoints; ids are seeded in
+        # Phase 0. Falls back to a synthetic id when the endpoint is undeployed.
+        ToolCase("get_field_configuration", 2, disc_field_config),
+        ToolCase("get_field_configuration_scheme", 2, disc_field_config_scheme),
         # find_field_usage scans every screen — give it generous headroom on
         # large instances before a timeout is treated as a genuine failure.
         ToolCase("find_field_usage", 2, _single("field_ids", "field_id"), timeout=240.0),
@@ -537,13 +556,13 @@ def _print_phase(phase: int) -> None:
 def _print_variant(tool: str, vr: VariantResult) -> None:
     icon = _ICON.get(vr.status, vr.status)
     size = f"{vr.result_bytes / 1024:7.1f} KB" if vr.result_bytes else " " * 10
-    print(f"  {icon}  {tool:<38s}{vr.label:<24s}{vr.duration_ms:8.0f} ms  {size}", flush=True)
+    print(f"  {icon:<5s} {tool:<38s}{vr.label:<24s}{vr.duration_ms:8.0f} ms  {size}", flush=True)
     if vr.error:
         print(f"        |_ {vr.error}", flush=True)
 
 
 def _print_skip(tool: str, reason: str) -> None:
-    print(f"  SKIP  {tool:<38s}{reason}", flush=True)
+    print(f"  {'SKIP':<5s} {tool:<38s}{reason}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -630,11 +649,14 @@ async def run_self_test(
         cache_status = f"{type(e).__name__}: {e}"
     print(f"Automation cache: {cache_status}", flush=True)
 
-    # Phase 0 — seed scheme IDs that have no dedicated discovery tool.
+    # Phase 0 — seed IDs that have no dedicated discovery tool (each method
+    # returns a list of dicts carrying an "id").
     for method, key in (
         ("list_issue_type_schemes", "issue_type_scheme_ids"),
         ("list_issue_security_schemes", "issue_security_scheme_ids"),
         ("list_priority_schemes", "priority_scheme_ids"),
+        ("list_field_configurations", "field_config_ids"),
+        ("list_field_configuration_schemes", "field_config_scheme_ids"),
     ):
         try:
             data = await getattr(client, method)()
@@ -712,11 +734,13 @@ async def run_self_test(
     in_scope = registered if effective_only is None else (registered & effective_only)
     tools_total = len(in_scope)
 
-    counts = {"pass": 0, "empty": 0, "tool_error": 0, "error": 0, "timeout": 0, "skipped": 0}
+    counts = {"pass": 0, "empty": 0, "unsupported": 0, "tool_error": 0,
+              "error": 0, "timeout": 0, "skipped": 0}
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
 
-    v_counts = {"pass": 0, "empty": 0, "tool_error": 0, "error": 0, "timeout": 0}
+    v_counts = {"pass": 0, "empty": 0, "unsupported": 0, "tool_error": 0,
+                "error": 0, "timeout": 0}
     exercised_branches: set[str] = set()
     failures: list[dict] = []
     skipped: list[dict] = []
@@ -760,12 +784,14 @@ async def run_self_test(
             "toolsRun": tools_run,
             "toolsPassed": counts["pass"],
             "toolsEmpty": counts["empty"],
+            "toolsUnsupported": counts["unsupported"],
             "toolsToolError": counts["tool_error"],
             "toolsFailed": counts["error"] + counts["timeout"],
             "toolsSkipped": counts["skipped"],
             "variantsTotal": sum(v_counts.values()),
             "variantsPassed": v_counts["pass"],
             "variantsEmpty": v_counts["empty"],
+            "variantsUnsupported": v_counts["unsupported"],
             "variantsToolError": v_counts["tool_error"],
             "variantsFailed": v_counts["error"] + v_counts["timeout"],
             "coverage": {
@@ -797,11 +823,11 @@ def _print_summary(report: dict) -> None:
     print("SUMMARY")
     print("=" * 72)
     print(f"  tools     : {s['toolsPassed']} passed  {s['toolsEmpty']} empty  "
-          f"{s['toolsToolError']} tool-error  {s['toolsFailed']} failed  "
-          f"{s['toolsSkipped']} skipped   (of {s['toolsTotal']})")
+          f"{s['toolsUnsupported']} unsupported  {s['toolsToolError']} tool-error  "
+          f"{s['toolsFailed']} failed  {s['toolsSkipped']} skipped   (of {s['toolsTotal']})")
     print(f"  variants  : {s['variantsPassed']} passed  {s['variantsEmpty']} empty  "
-          f"{s['variantsToolError']} tool-error  {s['variantsFailed']} failed   "
-          f"(of {s['variantsTotal']})")
+          f"{s['variantsUnsupported']} unsupported  {s['variantsToolError']} tool-error  "
+          f"{s['variantsFailed']} failed   (of {s['variantsTotal']})")
     print(f"  coverage  : tools {cov['toolCoveragePct']}%   pass {cov['passCoveragePct']}%   "
           f"param-branches {cov['parameterBranchesExercised']}/"
           f"{cov['parameterBranchesPlanned']} ({cov['parameterBranchCoveragePct']}%)")

@@ -6,6 +6,7 @@ Uses httpx for async HTTP with connection pooling.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -20,6 +21,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _PAGINATION_MAX = 1000  # safety cap so we never loop forever
+_MAX_CONCURRENCY = 10   # cap parallel requests; DC returns 403 above ~50 rapid concurrent
+
+
+async def bounded_gather(coros, limit: int = _MAX_CONCURRENCY):
+    """Run coroutines with at most ``limit`` in flight; results in input order."""
+    sem = asyncio.Semaphore(limit)
+
+    async def _run(coro):
+        async with sem:
+            return await coro
+
+    return await asyncio.gather(*(_run(c) for c in coros))
 
 
 def _env(name: str, default: str | None = None, required: bool = False) -> str | None:
@@ -117,6 +130,22 @@ class JiraClient:
                 break
             start += len(batch)
         return results
+
+    async def _scriptrunner_get(self, endpoint: str, params: dict | None = None) -> Any:
+        """GET a ScriptRunner custom REST endpoint; return parsed JSON, or None on failure.
+
+        Used for data the native Jira DC REST API does not expose. Returns None
+        (rather than raising) when the endpoint is missing or erroring, so callers
+        degrade gracefully on instances where the endpoints are not deployed.
+        """
+        try:
+            client = await self._get_client()
+            resp = await client.get(f"/rest/scriptrunner/latest/custom/{endpoint}", params=params)
+            resp.raise_for_status()
+            return resp.json() if resp.content else None
+        except Exception as e:
+            logger.warning("ScriptRunner %s failed: %s", endpoint, e)
+            return None
 
     # ======================================================================
     # REST API v2 — read operations
@@ -296,32 +325,35 @@ class JiraClient:
                 raise
         # Fallback: discover scheme IDs from project associations, then fetch each.
         # DC uses IDs in the 10000+ range, so sequential probing is impractical.
-        scheme_ids: set[int] = set()
-
-        # Discover scheme IDs via project list — each project exposes its workflow scheme
+        # Both stages are fanned out with bounded concurrency for speed.
         try:
             projects = await self.list_projects(expand="")
-            for p in projects:
-                try:
-                    data = await self.get(
-                        f"/rest/api/2/project/{p['key']}/workflowscheme"
-                    )
-                    if isinstance(data, dict) and data.get("id"):
-                        scheme_ids.add(int(data["id"]))
-                except httpx.HTTPStatusError:
-                    pass
         except Exception:
-            pass
+            projects = []
 
-        # Fetch full details for each discovered scheme
-        schemes: list[dict] = []
-        for sid in sorted(scheme_ids):
+        async def _project_scheme_id(project_key: str) -> int | None:
             try:
-                scheme = await self.get(f"/rest/api/2/workflowscheme/{sid}")
-                schemes.append(scheme)
+                data = await self.get(f"/rest/api/2/project/{project_key}/workflowscheme")
             except httpx.HTTPStatusError:
-                pass
-        return schemes
+                return None
+            if isinstance(data, dict) and data.get("id"):
+                return int(data["id"])
+            return None
+
+        scheme_ids = {
+            sid
+            for sid in await bounded_gather([_project_scheme_id(p["key"]) for p in projects])
+            if sid is not None
+        }
+
+        async def _fetch_scheme(scheme_id: int) -> dict | None:
+            try:
+                return await self.get(f"/rest/api/2/workflowscheme/{scheme_id}")
+            except httpx.HTTPStatusError:
+                return None
+
+        fetched = await bounded_gather([_fetch_scheme(sid) for sid in sorted(scheme_ids)])
+        return [s for s in fetched if s is not None]
 
     async def get_workflow_scheme(self, scheme_id: int) -> dict:
         return await self.get(f"/rest/api/2/workflowscheme/{scheme_id}")
@@ -399,36 +431,21 @@ class JiraClient:
     # -- field configurations ------------------------------------------------
     # NOTE: /rest/api/2/fieldconfiguration returns 404 on DC 10.3.12.
     # No known alternative endpoint.
+    # The native /rest/api/2/fieldconfiguration* endpoints 404 on Jira DC, so
+    # field-configuration data is served by ScriptRunner custom endpoints. Each
+    # config/scheme already embeds its field items / mappings. Returns [] when
+    # the endpoint is not deployed.
     async def list_field_configurations(self) -> list[dict]:
-        try:
-            return await self.get_paged("/rest/api/2/fieldconfiguration", key="values")
-        except httpx.HTTPStatusError:
-            return []
+        """Field configurations, each with embedded field items
+        (fieldId, fieldName, isRequired, isHidden, rendererType, description)."""
+        data = await self._scriptrunner_get("jiraMcpFieldConfigurations")
+        return data.get("fieldConfigurations", []) if isinstance(data, dict) else []
 
-    async def get_field_configuration_items(self, fc_id: int) -> list[dict]:
-        try:
-            return await self.get_paged(f"/rest/api/2/fieldconfiguration/{fc_id}/fields", key="values")
-        except httpx.HTTPStatusError:
-            return []
-
-    # -- field configuration schemes -----------------------------------------
-    # NOTE: /rest/api/2/fieldconfigurationscheme returns 404 on DC 10.3.12.
-    # No known alternative endpoint.
     async def list_field_configuration_schemes(self) -> list[dict]:
-        try:
-            return await self.get_paged("/rest/api/2/fieldconfigurationscheme", key="values")
-        except httpx.HTTPStatusError:
-            return []
-
-    async def get_field_configuration_scheme_mapping(self, scheme_id: int) -> list[dict]:
-        try:
-            return await self.get_paged(
-                f"/rest/api/2/fieldconfigurationscheme/mapping",
-                key="values",
-                params={"fieldConfigurationSchemeId": scheme_id},
-            )
-        except httpx.HTTPStatusError:
-            return []
+        """Field configuration schemes, each with embedded issue-type mappings
+        and associated projects."""
+        data = await self._scriptrunner_get("jiraMcpFieldConfigurationSchemes")
+        return data.get("fieldConfigurationSchemes", []) if isinstance(data, dict) else []
 
     # -- permission schemes --------------------------------------------------
     async def list_permission_schemes(self) -> list[dict]:
