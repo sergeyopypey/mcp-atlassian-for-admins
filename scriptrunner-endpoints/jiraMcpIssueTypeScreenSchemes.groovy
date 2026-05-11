@@ -23,6 +23,7 @@ import com.atlassian.jira.issue.fields.screen.issuetype.IssueTypeScreenSchemeEnt
 import com.atlassian.jira.issue.fields.screen.issuetype.IssueTypeScreenSchemeManager
 import com.atlassian.jira.issue.issuetype.IssueType
 import com.atlassian.jira.project.Project
+import com.atlassian.jira.project.ProjectManager
 
 import javax.ws.rs.core.MultivaluedMap
 import javax.ws.rs.core.Response
@@ -31,7 +32,8 @@ import javax.ws.rs.core.Response
 
 jiraMcpIssueTypeScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
     IssueTypeScreenSchemeManager issueTypeScreenSchemeManager = ComponentAccessor.getComponent(IssueTypeScreenSchemeManager)
-    IssueTypeManager issueTypeManager = ComponentAccessor.getObject(IssueTypeManager)
+    IssueTypeManager issueTypeManager = ComponentAccessor.getComponent(IssueTypeManager)
+    ProjectManager projectManager = ComponentAccessor.projectManager
 
     String filterById = queryParams.getFirst("id") as String
 
@@ -63,10 +65,15 @@ jiraMcpIssueTypeScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
             ] as Map<String, Object>)
         }
 
-        // Get associated projects
-        Collection<Project> associatedProjects = issueTypeScreenSchemeManager.getProjects(scheme)
-        List<Map<String, Object>> projects = associatedProjects.collect { Project project ->
-            [id: project.id, key: project.key, name: project.name] as Map<String, Object>
+        // Get associated projects — getProjects() returns legacy GenericValues,
+        // so resolve each to a Project object via the ProjectManager.
+        List<Map<String, Object>> projects = []
+        issueTypeScreenSchemeManager.getProjects(scheme).each { gv ->
+            Project project = projectManager.getProjectObj(gv.getLong("id"))
+            if (project != null) {
+                projects.add([id: project.id, key: project.key,
+                              name: project.name] as Map<String, Object>)
+            }
         }
 
         Map<String, Object> schemeMap = [

@@ -29,12 +29,14 @@ jiraMcpScheduledServices(httpMethod: "GET") { MultivaluedMap queryParams ->
     Set<String> sensitiveKeys = ["password", "secret", "token", "credential", "apikey"] as Set<String>
 
     List<Map<String, Object>> results = services.collect { JiraServiceContainer service ->
-        // Collect service properties (filtering out sensitive ones)
+        // Collect service properties (filtering out sensitive ones). getProperties()
+        // returns a Jira PropertySet — iterate its keys, not key/value pairs.
         Map<String, String> props = [:]
-        service.properties?.each { Object key, Object value ->
-            String lowerKey = key.toString().toLowerCase()
-            boolean isSensitive = sensitiveKeys.any { String s -> lowerKey.contains(s) }
-            props[key.toString()] = isSensitive ? "***REDACTED***" : value?.toString()
+        def propertySet = service.properties
+        propertySet?.getKeys()?.each { Object keyObj ->
+            String key = keyObj.toString()
+            boolean isSensitive = sensitiveKeys.any { String s -> key.toLowerCase().contains(s) }
+            props[key] = isSensitive ? "***REDACTED***" : propertySet.getAsActualType(key)?.toString()
         }
 
         Map<String, Object> serviceMap = [
@@ -46,7 +48,7 @@ jiraMcpScheduledServices(httpMethod: "GET") { MultivaluedMap queryParams ->
             delayFormatted  : formatDelay(service.delay),
             lastRun         : service.lastRun?.toString(),
             isRunning       : service.isRunning(),
-            isLocalService  : service.isLocal(),
+            isUsable        : service.isUsable(),
             properties      : props
         ]
         return serviceMap

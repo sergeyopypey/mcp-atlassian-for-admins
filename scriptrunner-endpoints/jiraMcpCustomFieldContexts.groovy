@@ -30,7 +30,7 @@ import javax.ws.rs.core.Response
 
 jiraMcpCustomFieldContexts(httpMethod: "GET") { MultivaluedMap queryParams ->
     CustomFieldManager customFieldManager = ComponentAccessor.customFieldManager
-    IssueTypeManager issueTypeManager = ComponentAccessor.getObject(IssueTypeManager)
+    IssueTypeManager issueTypeManager = ComponentAccessor.getComponent(IssueTypeManager)
 
     String filterFieldId = queryParams.getFirst("fieldId") as String
 
@@ -50,7 +50,7 @@ jiraMcpCustomFieldContexts(httpMethod: "GET") { MultivaluedMap queryParams ->
             } ?: []
 
             // Get associated issue types
-            Set<String> issueTypeIds = scheme.associatedIssueTypeIds()
+            Set<String> issueTypeIds = scheme.getAssociatedIssueTypeIds()
             boolean isGlobal = issueTypeIds == null || issueTypeIds.isEmpty() ||
                                issueTypeIds.contains(null)
 

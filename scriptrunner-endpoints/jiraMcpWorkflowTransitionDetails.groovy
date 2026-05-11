@@ -83,8 +83,8 @@ jiraMcpWorkflowTransitionDetails(httpMethod: "GET") { MultivaluedMap queryParams
             conditions = [parseCondition(restriction.conditionsDescriptor)]
         }
 
-        // Parse validators
-        List<Map<String, Object>> validators = restriction?.validators?.collect { ValidatorDescriptor v ->
+        // Parse validators — validators live on the action, not the restriction
+        List<Map<String, Object>> validators = action.validators?.collect { ValidatorDescriptor v ->
             [
                 className : v.args?.get("class.name") ?: v.args?.get("class"),
                 type      : v.type == 0 ? "class" : "plugin-module",
@@ -127,7 +127,6 @@ jiraMcpWorkflowTransitionDetails(httpMethod: "GET") { MultivaluedMap queryParams
         Map<String, Object> transitionMap = [
             id            : action.id,
             name          : action.name,
-            description   : action.description,
             screenId      : screenId,
             result        : resultStatus,
             conditions    : conditions,
