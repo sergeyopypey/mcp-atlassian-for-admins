@@ -41,12 +41,6 @@ async def get_field_configuration(client: JiraClient, fc_id: int) -> str:
     /rest/api/2/fieldconfiguration endpoint 404s on Jira DC.
     """
     fc_list = await client.list_field_configurations()
-    if not fc_list:
-        return json.dumps({
-            "unsupported": "Field configuration data requires the jiraMcpFieldConfigurations "
-                           "ScriptRunner endpoint, which is not available on this instance",
-            "fieldConfigurationId": fc_id,
-        })
     fc = next((c for c in fc_list if c.get("id") == fc_id), None)
     if fc is None:
         return json.dumps({"error": f"Field configuration {fc_id} not found"})
@@ -78,13 +72,6 @@ async def get_field_configuration_scheme(client: JiraClient, scheme_id: int) -> 
     native /rest/api/2/fieldconfigurationscheme endpoint 404s on Jira DC.
     """
     schemes = await client.list_field_configuration_schemes()
-    if not schemes:
-        return json.dumps({
-            "unsupported": "Field configuration scheme data requires the "
-                           "jiraMcpFieldConfigurationSchemes ScriptRunner endpoint, "
-                           "which is not available on this instance",
-            "schemeId": scheme_id,
-        })
     scheme = next((s for s in schemes if s.get("id") == scheme_id), None)
     if scheme is None:
         return json.dumps({"error": f"Field configuration scheme {scheme_id} not found"})
@@ -149,8 +136,7 @@ async def find_field_usage(client: JiraClient, field_id: str) -> str:
     result = {
         "fieldId": field_id,
         "screens": screen_hits,
-        "fieldConfigurations": fc_hits if fc_list else
-            "unavailable — jiraMcpFieldConfigurations ScriptRunner endpoint not deployed",
+        "fieldConfigurations": fc_hits,
         "totalScreens": len(screen_hits),
         "totalFieldConfigs": len(fc_hits),
     }
@@ -256,30 +242,28 @@ async def list_custom_fields_usage(
 async def get_field_contexts(client: JiraClient, field_id: str) -> str:
     """Get custom field contexts — which projects and issue types the field is scoped to.
 
-    Uses the internal ``/rest/internal/2/field/{id}/context`` endpoint.
-    This endpoint is NOT officially supported and may break on upgrades.
+    Served by the jiraMcpCustomFieldContexts ScriptRunner endpoint (replaces the
+    unsupported internal API /rest/internal/2/field/{id}/context).
     """
-    contexts = await client.get_field_context(field_id)
-    if not contexts:
-        return json.dumps({"error": f"No contexts found for field {field_id} (internal API may be unavailable)"})
-
-    result = []
-    for ctx in contexts:
-        projects = ctx.get("projects", [])
-        issue_types = ctx.get("issueTypes", [])
-        result.append({
+    fields = await client.list_custom_field_contexts(field_id)
+    if not fields:
+        return json.dumps({"error": f"No custom field context data for field {field_id}"})
+    entry = fields[0]
+    contexts = [
+        {
             "id": ctx.get("id"),
             "name": ctx.get("name", ""),
             "description": ctx.get("description", ""),
-            "allProjects": ctx.get("allProjects", False),
-            "allIssueTypes": ctx.get("allIssueTypes", False),
-            "projects": [
-                {"id": p.get("id"), "key": p.get("key")}
-                for p in projects
-            ] if isinstance(projects, list) else [],
-            "issueTypes": [
-                {"id": it.get("id"), "name": it.get("name")}
-                for it in issue_types
-            ] if isinstance(issue_types, list) else [],
-        })
-    return json.dumps({"fieldId": field_id, "contexts": result}, indent=2)
+            "isAllProjects": ctx.get("isGlobalProjects", False),
+            "isAllIssueTypes": ctx.get("isAllIssueTypes", False),
+            "projects": ctx.get("projects", []),
+            "issueTypes": ctx.get("issueTypes", []),
+        }
+        for ctx in entry.get("contexts", [])
+    ]
+    return json.dumps({
+        "fieldId": entry.get("fieldId"),
+        "fieldName": entry.get("fieldName"),
+        "fieldType": entry.get("fieldType"),
+        "contexts": contexts,
+    }, indent=2)

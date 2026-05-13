@@ -1,4 +1,4 @@
-"""Filter, dashboard, and webhook introspection tools."""
+"""Filter and dashboard introspection tools."""
 
 from __future__ import annotations
 
@@ -45,23 +45,5 @@ async def list_dashboards(client: JiraClient) -> str:
             "view": d.get("view"),
         }
         for d in dashboards
-    ]
-    return json.dumps(result, indent=2)
-
-
-async def list_webhooks(client: JiraClient) -> str:
-    """List all registered webhooks."""
-    webhooks = await client.list_webhooks()
-    result = [
-        {
-            "id": w.get("self", "").rstrip("/").split("/")[-1] if w.get("self") else w.get("id"),
-            "name": w.get("name"),
-            "url": w.get("url"),
-            "events": w.get("events", []),
-            "enabled": w.get("enabled"),
-            "filters": w.get("filters") or {},
-            "excludeBody": w.get("excludeBody"),
-        }
-        for w in webhooks
     ]
     return json.dumps(result, indent=2)

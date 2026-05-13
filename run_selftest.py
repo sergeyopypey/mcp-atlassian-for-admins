@@ -96,6 +96,7 @@ _HARVEST_PRODUCERS = {
     "user_keys": "find_users",
     "audit_item_ids": "get_automation_audit_log",
     "group_names": "get_user_groups",
+    "issue_type_screen_scheme_ids": "list_issue_type_screen_schemes",
 }
 
 
@@ -234,6 +235,9 @@ def _harvest(harvest: dict, tool: str, parsed: Any) -> None:
             _add(harvest, "notification_scheme_ids", [s.get("id") for s in parsed if isinstance(s, dict)])
         case "list_boards" if isinstance(parsed, list):
             _add(harvest, "board_ids", [b.get("id") for b in parsed if isinstance(b, dict)])
+        case "list_issue_type_screen_schemes" if isinstance(parsed, list):
+            _add(harvest, "issue_type_screen_scheme_ids",
+                 [s.get("id") for s in parsed if isinstance(s, dict)])
         case "list_service_desks" if isinstance(parsed, list):
             _add(harvest, "service_desk_ids", [d.get("id") for d in parsed if isinstance(d, dict)])
         case "list_automation_rules" if isinstance(parsed, list):
@@ -254,6 +258,7 @@ def _harvest(harvest: dict, tool: str, parsed: Any) -> None:
         case "find_users" if isinstance(parsed, list):
             _add(harvest, "user_keys", [u.get("key") or u.get("name")
                                         for u in parsed if isinstance(u, dict)])
+            _add(harvest, "usernames", [u.get("name") for u in parsed if isinstance(u, dict)])
         case "get_automation_audit_log" if isinstance(parsed, list):
             _add(harvest, "audit_item_ids", [e.get("id") for e in parsed if isinstance(e, dict)])
         case "get_user_groups" if isinstance(parsed, list):
@@ -420,9 +425,20 @@ def _build_test_plan() -> list[ToolCase]:
                         note="no schemes discovered — jiraMcpFieldConfigurationSchemes "
                              "ScriptRunner endpoint may be undeployed")]
 
+    def disc_effective_perms(h):
+        pk = (h.get("project_keys") or [None])[0]
+        if not pk:
+            return None
+        user = (h.get("usernames") or [None])[0]
+        if user:
+            return [Variant("by user", {"project_key": pk, "username": user})]
+        return [Variant("by permission",
+                        {"project_key": pk, "permission": "BROWSE_PROJECTS"})]
+
     # Required harvest keys for closures that skip entirely without discovered data
     # (the _single() factory tags its own; these are the hand-written closures).
     disc_createmeta.needs = ("createmeta_pairs",)
+    disc_effective_perms.needs = ("project_keys",)
     disc_rule_audit_log.needs = ("rule_ids",)
     disc_group_members.needs = ("group_names",)
     disc_get_issue.needs = ("project_keys",)
@@ -446,9 +462,12 @@ def _build_test_plan() -> list[ToolCase]:
         ToolCase("list_boards", 1, disc_list_boards,
                  branches=("boards:no_project", "boards:project")),
         ToolCase("list_service_desks", 1, _no_args),
+        ToolCase("list_issue_type_screen_schemes", 1, _no_args),
+        ToolCase("list_listeners", 1, _no_args),
+        ToolCase("list_scheduled_services", 1, _no_args),
+        ToolCase("list_application_links", 1, _no_args),
         ToolCase("list_filters", 1, _no_args),
         ToolCase("list_dashboards", 1, _no_args),
-        ToolCase("list_webhooks", 1, _no_args),
         ToolCase("list_project_categories", 1, _no_args),
         ToolCase("list_fields", 1, disc_list_fields,
                  branches=("list_fields:default", "list_fields:custom_only", "list_fields:field_ids")),
@@ -493,8 +512,6 @@ def _build_test_plan() -> list[ToolCase]:
                  branches=("ruleaudit:basic", "ruleaudit:filtered")),
         ToolCase("get_board_configuration", 2, _single("board_ids", "board_id"),
                  skip_reason="instance has no agile boards"),
-        ToolCase("get_service_desk_slas", 2, _single("service_desk_ids", "service_desk_id"),
-                 skip_reason="instance has no JSM service desks"),
         ToolCase("get_service_desk_queues", 2, _single("service_desk_ids", "service_desk_id"),
                  skip_reason="instance has no JSM service desks"),
         ToolCase("analyze_project_config_chain", 2, _single("project_keys", "project_key")),
@@ -506,6 +523,12 @@ def _build_test_plan() -> list[ToolCase]:
                  branches=("changelog:all", "changelog:field")),
         ToolCase("find_users", 2, disc_find_users,
                  branches=("users:query", "users:query_max")),
+        ToolCase("get_issue_type_screen_scheme", 2,
+                 _single("issue_type_screen_scheme_ids", "scheme_id"),
+                 skip_reason="no issue type screen schemes discovered"),
+        ToolCase("get_workflow_transition_details", 2,
+                 _single("workflow_names", "workflow_name")),
+        ToolCase("get_effective_permissions", 2, disc_effective_perms),
 
         # ---- Phase 3: second-order dependent -------------------------------
         ToolCase("get_automation_audit_item", 3, _single("audit_item_ids", "item_id"),

@@ -132,20 +132,20 @@ class JiraClient:
         return results
 
     async def _scriptrunner_get(self, endpoint: str, params: dict | None = None) -> Any:
-        """GET a ScriptRunner custom REST endpoint; return parsed JSON, or None on failure.
+        """GET a ScriptRunner custom REST endpoint and return parsed JSON.
 
-        Used for data the native Jira DC REST API does not expose. Returns None
-        (rather than raising) when the endpoint is missing or erroring, so callers
-        degrade gracefully on instances where the endpoints are not deployed.
+        Raises (with the HTTP status and response body) on any failure. A missing
+        (404) or erroring (500) endpoint is a real error and is surfaced loudly —
+        never silently degraded to an empty/None result.
         """
-        try:
-            client = await self._get_client()
-            resp = await client.get(f"/rest/scriptrunner/latest/custom/{endpoint}", params=params)
-            resp.raise_for_status()
-            return resp.json() if resp.content else None
-        except Exception as e:
-            logger.warning("ScriptRunner %s failed: %s", endpoint, e)
-            return None
+        client = await self._get_client()
+        resp = await client.get(f"/rest/scriptrunner/latest/custom/{endpoint}", params=params)
+        if resp.status_code >= 400:
+            body = " ".join((resp.text or "").split())[:300]
+            raise RuntimeError(
+                f"ScriptRunner endpoint /{endpoint} returned HTTP {resp.status_code}: {body}"
+            )
+        return resp.json() if resp.content else None
 
     # ======================================================================
     # REST API v2 — read operations
@@ -298,16 +298,16 @@ class JiraClient:
 
     # -- custom field contexts (internal, unsupported) -----------------------
 
-    async def get_field_context(self, field_id: str) -> list[dict]:
-        """Get custom field contexts (project + issue type scoping).
+    async def list_custom_field_contexts(self, field_id: str | None = None) -> list[dict]:
+        """Custom field contexts (project + issue type scoping).
 
-        Uses the internal /rest/internal/2/field/{id}/context endpoint.
-        NOT officially supported — may break on upgrades.
+        Served by the jiraMcpCustomFieldContexts ScriptRunner endpoint. Returns
+        the per-field list [{fieldId, fieldName, fieldType, contexts:[...]}];
+        [] when the endpoint is unavailable.
         """
-        try:
-            return await self.get(f"/rest/internal/2/field/{quote(field_id)}/context")
-        except httpx.HTTPStatusError:
-            return []
+        params = {"fieldId": field_id} if field_id else None
+        data = await self._scriptrunner_get("jiraMcpCustomFieldContexts", params=params)
+        return data.get("fields", []) if isinstance(data, dict) else []
 
     # ======================================================================
     # Schemes
@@ -374,35 +374,39 @@ class JiraClient:
     # -- issue type screen schemes -------------------------------------------
     # NOTE: /rest/api/2/issuetypescreenscheme returns 404 on DC 10.3.12.
     # No known alternative endpoint.
+    # The native /rest/api/2/issuetypescreenscheme* endpoints 404 on Jira DC, so
+    # this data is served by the jiraMcpIssueTypeScreenSchemes ScriptRunner
+    # endpoint. Each scheme embeds its issue-type mappings and projects.
     async def list_issue_type_screen_schemes(self) -> list[dict]:
-        try:
-            return await self.get_paged("/rest/api/2/issuetypescreenscheme", key="values")
-        except httpx.HTTPStatusError:
-            return []
+        data = await self._scriptrunner_get("jiraMcpIssueTypeScreenSchemes")
+        return data.get("issueTypeScreenSchemes", []) if isinstance(data, dict) else []
 
-    async def get_issue_type_screen_scheme(self, scheme_id: int) -> dict:
-        return await self.get(f"/rest/api/2/issuetypescreenscheme/{scheme_id}")
+    async def get_issue_type_screen_scheme(self, scheme_id: int) -> dict | None:
+        data = await self._scriptrunner_get(
+            "jiraMcpIssueTypeScreenSchemes", params={"id": scheme_id})
+        schemes = data.get("issueTypeScreenSchemes", []) if isinstance(data, dict) else []
+        return schemes[0] if schemes else None
 
     async def get_issue_type_screen_scheme_items(self, scheme_ids: list[int] | None = None) -> list[dict]:
-        params = {}
+        """Flattened issue-type → screen-scheme mappings, optionally filtered by
+        scheme id (each item carries screenSchemeId)."""
+        schemes = await self.list_issue_type_screen_schemes()
         if scheme_ids:
-            params["issueTypeScreenSchemeId"] = scheme_ids
-        try:
-            return await self.get_paged("/rest/api/2/issuetypescreenscheme/mapping", key="values", params=params)
-        except httpx.HTTPStatusError:
-            return []
+            wanted = {int(s) for s in scheme_ids}
+            schemes = [s for s in schemes if s.get("id") in wanted]
+        return [m for s in schemes for m in s.get("mappings", [])]
 
     # -- screen schemes ------------------------------------------------------
-    # NOTE: /rest/api/2/screenscheme returns 404 on DC 10.3.12.
-    # No known alternative endpoint.
+    # The native /rest/api/2/screenscheme endpoint 404s on Jira DC; served by
+    # the jiraMcpScreenSchemes ScriptRunner endpoint instead.
     async def list_screen_schemes(self) -> list[dict]:
-        try:
-            return await self.get_paged("/rest/api/2/screenscheme", key="values")
-        except httpx.HTTPStatusError:
-            return []
+        data = await self._scriptrunner_get("jiraMcpScreenSchemes")
+        return data.get("screenSchemes", []) if isinstance(data, dict) else []
 
-    async def get_screen_scheme(self, scheme_id: int) -> dict:
-        return await self.get(f"/rest/api/2/screenscheme/{scheme_id}")
+    async def get_screen_scheme(self, scheme_id: int) -> dict | None:
+        data = await self._scriptrunner_get("jiraMcpScreenSchemes", params={"id": scheme_id})
+        schemes = data.get("screenSchemes", []) if isinstance(data, dict) else []
+        return schemes[0] if schemes else None
 
     # -- screens -------------------------------------------------------------
     async def list_screens(self, expand: str = "") -> list[dict]:
@@ -447,6 +451,44 @@ class JiraClient:
         data = await self._scriptrunner_get("jiraMcpFieldConfigurationSchemes")
         return data.get("fieldConfigurationSchemes", []) if isinstance(data, dict) else []
 
+    # -- instance administration (ScriptRunner endpoints) --------------------
+    async def list_listeners(self) -> list[dict]:
+        """Registered event listeners (built-in, plugin, ScriptRunner)."""
+        data = await self._scriptrunner_get("jiraMcpListeners")
+        return data.get("listeners", []) if isinstance(data, dict) else []
+
+    async def list_scheduled_services(self) -> list[dict]:
+        """Jira scheduled services (mail handlers, etc.) with their schedules."""
+        data = await self._scriptrunner_get("jiraMcpScheduledServices")
+        return data.get("services", []) if isinstance(data, dict) else []
+
+    async def list_application_links(self) -> list[dict]:
+        """Application links to Confluence, Bitbucket, etc."""
+        data = await self._scriptrunner_get("jiraMcpApplicationLinks")
+        return data.get("applicationLinks", []) if isinstance(data, dict) else []
+
+    async def get_effective_permissions(
+        self, project_key: str, username: str | None = None, permission: str | None = None
+    ) -> dict | None:
+        """Resolve effective permissions for a user and/or a permission on a
+        project. Returns None when the endpoint is unavailable."""
+        params: dict[str, Any] = {"projectKey": project_key}
+        if username:
+            params["username"] = username
+        if permission:
+            params["permission"] = permission
+        return await self._scriptrunner_get("jiraMcpEffectivePermissions", params=params)
+
+    async def get_workflow_transition_details(
+        self, workflow_name: str, transition_id: int | None = None
+    ) -> dict | None:
+        """Full transition rule configuration (post-function params, condition
+        and validator args). Returns None when the endpoint is unavailable."""
+        params: dict[str, Any] = {"workflowName": workflow_name}
+        if transition_id is not None:
+            params["transitionId"] = transition_id
+        return await self._scriptrunner_get("jiraMcpWorkflowTransitionDetails", params=params)
+
     # -- permission schemes --------------------------------------------------
     async def list_permission_schemes(self) -> list[dict]:
         data = await self.get("/rest/api/2/permissionscheme", {"expand": "all"})
@@ -479,15 +521,17 @@ class JiraClient:
 
     # -- priority schemes (DC 10) -------------------------------------------
     async def list_priority_schemes(self) -> list[dict]:
+        # DC endpoint is plural /priorityschemes and returns {"schemes": [...]}.
         try:
-            return await self.get_paged("/rest/api/2/priorityscheme", key="values")
+            data = await self.get("/rest/api/2/priorityschemes")
+            return data.get("schemes", []) if isinstance(data, dict) else []
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return []  # endpoint might not exist on older DCs
             raise
 
     async def get_priority_scheme(self, scheme_id: int) -> dict:
-        return await self.get(f"/rest/api/2/priorityscheme/{scheme_id}")
+        return await self.get(f"/rest/api/2/priorityschemes/{scheme_id}")
 
     # ======================================================================
     # Agile boards
@@ -513,19 +557,6 @@ class JiraClient:
     # JSM Service Desk — SLAs and queues
     # ======================================================================
 
-    async def get_service_desk_slas(self, service_desk_id: int) -> list[dict]:
-        """Get SLA metrics for a service desk.
-
-        Note: The servicedeskapi may require the JSM agent to have appropriate permissions.
-        """
-        try:
-            data = await self.get(
-                f"/rest/servicedeskapi/servicedesk/{service_desk_id}/sla/metrics"
-            )
-            return data.get("values", []) if isinstance(data, dict) else data
-        except httpx.HTTPStatusError:
-            return []
-
     async def get_service_desk_queues(self, service_desk_id: int) -> list[dict]:
         """Get queues for a service desk."""
         try:
@@ -537,7 +568,7 @@ class JiraClient:
             return []
 
     # ======================================================================
-    # Filters, dashboards, webhooks
+    # Filters, dashboards
     # ======================================================================
 
     async def list_filters(self) -> list[dict]:
@@ -553,13 +584,6 @@ class JiraClient:
             return await self.get_paged(
                 "/rest/api/2/dashboard", key="dashboards",
             )
-        except httpx.HTTPStatusError:
-            return []
-
-    async def list_webhooks(self) -> list[dict]:
-        """List all registered webhooks."""
-        try:
-            return await self.get("/rest/api/2/webhook")
         except httpx.HTTPStatusError:
             return []
 

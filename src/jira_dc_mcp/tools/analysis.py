@@ -72,7 +72,8 @@ async def analyze_project_config_chain(client: JiraClient, project_key: str) -> 
             for ssid in screen_scheme_ids:
                 try:
                     ss = await client.get_screen_scheme(ssid)
-                    chain["resolvedScreenSchemes"].append(ss)
+                    chain["resolvedScreenSchemes"].append(
+                        ss if ss else {"id": ssid, "error": "not found"})
                 except Exception:
                     chain["resolvedScreenSchemes"].append({"id": ssid, "error": "failed to fetch"})
         except Exception:

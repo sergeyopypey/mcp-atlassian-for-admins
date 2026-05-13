@@ -14,7 +14,7 @@ from mcp.types import TextContent, Tool
 
 from .automation_cache import AutomationCache
 from .client import JiraClient
-from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis, boards, servicedesk, filters, users, issues
+from .tools import dump, projects, workflows, screens, fields, schemes, automation, analysis, boards, servicedesk, filters, users, issues, admin
 
 logger = logging.getLogger(__name__)
 
@@ -529,20 +529,6 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
-        "name": "get_service_desk_slas",
-        "description": (
-            "Get SLA metrics for a JSM service desk — response/resolution time targets. "
-            "Critical for understanding service commitments."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "service_desk_id": {"type": "integer", "description": "Service desk ID (from list_service_desks)"},
-            },
-            "required": ["service_desk_id"],
-        },
-    },
-    {
         "name": "get_service_desk_queues",
         "description": (
             "Get queues for a JSM service desk — how requests are triaged and routed. "
@@ -557,7 +543,7 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 
-    # ── Filter, dashboard & webhook tools ──────────────────────────────────
+    # ── Filter & dashboard tools ───────────────────────────────────────────
     {
         "name": "list_filters",
         "description": (
@@ -569,14 +555,6 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_dashboards",
         "description": "List all dashboards with owner and popularity.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "list_webhooks",
-        "description": (
-            "List all registered webhooks — external integrations notified on Jira events. "
-            "Shows URL, events, filters, and enabled status."
-        ),
         "inputSchema": {"type": "object", "properties": {}},
     },
 
@@ -725,6 +703,84 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["group_name"],
         },
     },
+
+    # ── Instance administration (ScriptRunner-backed) ──────────────────────
+    {
+        "name": "list_issue_type_screen_schemes",
+        "description": (
+            "List all issue type screen schemes with their issue-type-to-screen-scheme "
+            "mappings and associated projects. Backed by a ScriptRunner endpoint."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_issue_type_screen_scheme",
+        "description": "Get a single issue type screen scheme with its mappings and projects.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scheme_id": {"type": "integer", "description": "Issue type screen scheme ID"},
+            },
+            "required": ["scheme_id"],
+        },
+    },
+    {
+        "name": "get_workflow_transition_details",
+        "description": (
+            "Full transition rule configuration for a workflow — post-function parameters, "
+            "condition arguments, validator arguments (the actual config, not just class "
+            "names). Backed by a ScriptRunner endpoint."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_name": {"type": "string", "description": "Exact workflow name"},
+                "transition_id": {"type": "integer", "description": "Optional: filter to one transition"},
+            },
+            "required": ["workflow_name"],
+        },
+    },
+    {
+        "name": "list_listeners",
+        "description": (
+            "List all registered event listeners (built-in, plugin, ScriptRunner). "
+            "Listeners cause side effects invisible to the REST API."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_scheduled_services",
+        "description": (
+            "List all Jira scheduled services (mail handlers, backup services, etc.) "
+            "with their cron schedules. Sensitive properties are redacted."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_application_links",
+        "description": (
+            "List application links to Confluence, Bitbucket, Bamboo, etc., with type, "
+            "URLs, and authentication status."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_effective_permissions",
+        "description": (
+            "Resolve effective permissions on a project by walking groups, roles, and "
+            "grants. Pass username to get every permission a user holds, and/or "
+            "permission to get every user that holds it. At least one is required."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "project_key": {"type": "string", "description": "Project key to check"},
+                "username": {"type": "string", "description": "User to resolve permissions for"},
+                "permission": {"type": "string", "description": "Permission key (e.g. BROWSE_PROJECTS)"},
+            },
+            "required": ["project_key"],
+        },
+    },
 ]
 
 
@@ -866,18 +922,14 @@ async def _dispatch(
         # Service Desk (JSM)
         case "list_service_desks":
             return await servicedesk.list_service_desks(client)
-        case "get_service_desk_slas":
-            return await servicedesk.get_service_desk_slas(client, _int(args, "service_desk_id"))
         case "get_service_desk_queues":
             return await servicedesk.get_service_desk_queues(client, _int(args, "service_desk_id"))
 
-        # Filters, dashboards, webhooks
+        # Filters, dashboards
         case "list_filters":
             return await filters.list_filters(client)
         case "list_dashboards":
             return await filters.list_dashboards(client)
-        case "list_webhooks":
-            return await filters.list_webhooks(client)
 
         # Project categories
         case "list_project_categories":
@@ -908,6 +960,27 @@ async def _dispatch(
                 args["group_name"],
                 args.get("include_inactive", False),
                 args.get("max_results", 1000),
+            )
+
+        # Instance administration (ScriptRunner-backed)
+        case "list_issue_type_screen_schemes":
+            return await screens.list_issue_type_screen_schemes(client)
+        case "get_issue_type_screen_scheme":
+            return await screens.get_issue_type_screen_scheme(client, _int(args, "scheme_id"))
+        case "get_workflow_transition_details":
+            return await workflows.get_workflow_transition_details(
+                client, args["workflow_name"],
+                _int(args, "transition_id") if "transition_id" in args else None,
+            )
+        case "list_listeners":
+            return await admin.list_listeners(client)
+        case "list_scheduled_services":
+            return await admin.list_scheduled_services(client)
+        case "list_application_links":
+            return await admin.list_application_links(client)
+        case "get_effective_permissions":
+            return await admin.get_effective_permissions(
+                client, args["project_key"], args.get("username"), args.get("permission"),
             )
 
         case _:

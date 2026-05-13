@@ -598,3 +598,17 @@ async def get_workflow_statuses_and_transitions(client: JiraClient, workflow_nam
         result["jsmApproval"] = jsm_approval
 
     return json.dumps(result, indent=2)
+
+
+async def get_workflow_transition_details(
+    client: JiraClient, workflow_name: str, transition_id: int | None = None
+) -> str:
+    """Full transition rule configuration for a workflow — post-function
+    parameters, condition arguments, validator arguments.
+
+    Served by the jiraMcpWorkflowTransitionDetails ScriptRunner endpoint, which
+    exposes the actual descriptor arguments (get_workflow_detail's XML parsing
+    only yields class names). Optionally filter to a single transition_id.
+    """
+    data = await client.get_workflow_transition_details(workflow_name, transition_id)
+    return json.dumps(data, indent=2)
