@@ -24,6 +24,10 @@ Custom REST endpoints for Jira Data Center that expose Java API data unavailable
 | `jiraMcpApplicationLinks.groovy` | `/jiraMcpApplicationLinks` | P2 | Application links to Confluence, Bitbucket, etc. |
 | `jiraMcpEffectivePermissions.groovy` | `/jiraMcpEffectivePermissions` | P2 | Resolved effective permissions for user+project |
 
+All endpoints above are wired into working MCP tools (see the project README).
+A tool surfaces a clear error if its endpoint is missing or failing — failures
+are not silently degraded.
+
 ## Authentication
 
 These endpoints inherit ScriptRunner's authentication. Callers must authenticate with Jira credentials (Basic auth or PAT) that have admin privileges.

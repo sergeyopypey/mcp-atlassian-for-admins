@@ -1,5 +1,19 @@
 # TODO — Jira DC MCP Server
 
+## Removed — future work
+
+`list_webhooks` and `get_service_desk_slas` were removed: no accessible data
+source exists on Jira DC. To revive either later:
+
+- **Webhooks** — Jira System webhooks (Settings → System → WebHooks) have no
+  accessible Java or REST API on Jira DC. `/rest/api/2/webhook` and
+  `/rest/webhooks/*` 404; Crowd's `WebhookRegistry` exposes only Crowd webhooks
+  (not the same thing). Needs a ScriptRunner endpoint against the
+  webhooks-plugin internals.
+- **JSM SLAs** — JSM SLA configuration (time metrics/goals) is not exposed by
+  the servicedeskapi, and the JSM internal SLA-config Java API class is
+  unidentified. Needs the correct JSM internal class.
+
 ## What We Have (47 tools)
 
 | Data | Tool | Status |

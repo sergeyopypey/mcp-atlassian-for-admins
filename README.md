@@ -70,6 +70,7 @@ Jira DC 10 exposes a single bulk-export endpoint for automation rules — no per
 | `list_active_workflows` | Only workflows in use by active projects |
 | `get_workflow_detail` | Full workflow: steps, transitions, conditions, validators, post-functions, properties |
 | `get_workflow_statuses_and_transitions` | Statuses and transitions for a workflow |
+| `get_workflow_transition_details` | Full transition rule config — post-function/condition/validator arguments |
 | `get_workflow_scheme` | Workflow scheme with issue-type-to-workflow mappings |
 | `list_workflow_schemes` | All workflow schemes |
 
@@ -79,8 +80,10 @@ Jira DC 10 exposes a single bulk-export endpoint for automation rules — no per
 |---|---|
 | `list_screens` | All screens |
 | `get_screen_tabs_and_fields` | Screen's tabs with all fields in order |
-| `list_screen_schemes` | All screen schemes |
+| `list_screen_schemes` | All screen schemes with create/edit/view screen mappings |
 | `get_screen_scheme` | Screen scheme operation-to-screen mapping |
+| `list_issue_type_screen_schemes` | All issue type screen schemes with issue-type-to-screen-scheme mappings |
+| `get_issue_type_screen_scheme` | Single issue type screen scheme with mappings and projects |
 
 ### Fields
 
@@ -90,7 +93,7 @@ Jira DC 10 exposes a single bulk-export endpoint for automation rules — no per
 | `get_field_configuration` | Field config: required, hidden, renderer per field |
 | `get_field_configuration_scheme` | Issue-type-to-field-config mapping |
 | `find_field_usage` | Where a field appears across all screens |
-| `get_field_contexts` | Custom field contexts — project + issue type scoping (internal API) |
+| `get_field_contexts` | Custom field contexts — project + issue type scoping |
 | `get_createmeta_fields` | Fields on the CREATE screen for a project + issue type, including **allowed values** for select/radio/checkbox fields |
 
 ### Schemes
@@ -124,10 +127,8 @@ Jira DC 10 exposes a single bulk-export endpoint for automation rules — no per
 | `get_board_configuration` | Board config: filter, columns, estimation |
 | `list_service_desks` | All service desks |
 | `get_service_desk_queues` | Queues for a service desk |
-| `get_service_desk_slas` | SLA definitions |
 | `list_filters` | All shared filters |
 | `list_dashboards` | All dashboards |
-| `list_webhooks` | All webhooks |
 
 ### Users
 
@@ -142,6 +143,18 @@ Jira DC 10 exposes a single bulk-export endpoint for automation rules — no per
 |---|---|
 | `analyze_project_config_chain` | Resolve full scheme chain for a project, report inconsistencies |
 | `search_config` | Free-text search across all config entities |
+
+### Administration
+
+Backed by ScriptRunner custom endpoints (see `scriptrunner-endpoints/`); each
+returns an `unsupported` notice when its endpoint is not deployed.
+
+| Tool | Description |
+|---|---|
+| `list_listeners` | All registered event listeners (built-in, plugin, ScriptRunner) |
+| `list_scheduled_services` | Jira scheduled services with cron schedules |
+| `list_application_links` | Application links to Confluence, Bitbucket, etc. |
+| `get_effective_permissions` | Resolve effective permissions for a user and/or permission on a project |
 
 ---
 
