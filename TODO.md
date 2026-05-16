@@ -1,143 +1,77 @@
 # TODO — Jira DC MCP Server
 
-## Removed — future work
+## Tools (60)
 
-`list_webhooks` and `get_service_desk_slas` were removed: no accessible data
-source exists on Jira DC. To revive either later:
+Read-only introspection of a Jira Data Center instance. Tools marked **(SR)**
+are backed by a ScriptRunner custom endpoint (`scriptrunner-endpoints/`) because
+the data is not available through the native REST API.
 
-- **Webhooks** — Jira System webhooks (Settings → System → WebHooks) have no
-  accessible Java or REST API on Jira DC. `/rest/api/2/webhook` and
-  `/rest/webhooks/*` 404; Crowd's `WebhookRegistry` exposes only Crowd webhooks
-  (not the same thing). Needs a ScriptRunner endpoint against the
-  webhooks-plugin internals.
-- **JSM SLAs** — JSM SLA configuration (time metrics/goals) is not exposed by
-  the servicedeskapi, and the JSM internal SLA-config Java API class is
-  unidentified. Needs the correct JSM internal class.
+| Area | Tools |
+|---|---|
+| Dump | `dump_global_config`, `dump_workflows`, `dump_automation_rules` |
+| Projects | `list_projects`, `get_project_config`, `get_project_role_members`, `get_project_components`, `get_project_versions`, `list_project_categories` |
+| Workflows | `list_active_workflows`, `list_all_workflows`, `get_workflow_detail` **(SR)**, `get_workflow_statuses_and_transitions`, `list_workflow_schemes`, `get_workflow_scheme`, `get_workflow_transition_details` **(SR)** |
+| Screens | `list_screens`, `get_screen_tabs_and_fields`, `list_screen_schemes` **(SR)**, `get_screen_scheme` **(SR)**, `list_issue_type_screen_schemes` **(SR)**, `get_issue_type_screen_scheme` **(SR)** |
+| Fields | `list_fields`, `list_custom_fields_usage`, `get_field_configuration` **(SR)**, `get_field_configuration_scheme` **(SR)**, `find_field_usage`, `get_createmeta_fields`, `get_field_contexts` **(SR)** |
+| Schemes | `get_permission_scheme`, `list_permission_schemes`, `get_notification_scheme`, `list_notification_schemes`, `get_issue_type_scheme`, `get_issue_security_scheme`, `get_priority_scheme` |
+| Automation (A4J) | `list_automation_rules`, `get_automation_rule_detail`, `get_automation_audit_log`, `get_automation_rule_audit_log`, `get_automation_audit_item`, `refresh_automation_cache` |
+| Boards & JSM | `list_boards`, `get_board_configuration`, `list_service_desks`, `get_service_desk_queues` |
+| Filters & dashboards | `list_filters`, `list_dashboards` |
+| Issues | `get_issue`, `get_issue_changelog` |
+| Users | `get_user`, `find_users`, `get_user_groups`, `get_group_members` |
+| Analysis | `analyze_project_config_chain`, `search_config` |
+| Administration **(SR)** | `list_listeners`, `list_scheduled_services`, `list_application_links`, `get_effective_permissions` |
 
-## What We Have (47 tools)
+`run_selftest.py` exercises every tool against a live instance and reports
+per-tool pass/fail plus coverage.
 
-| Data | Tool | Status |
-|---|---|---|
-| Projects + issue types | `list_projects`, `get_project_config` | Working |
-| Project role members | `get_project_role_members` | Working |
-| Project components | `get_project_components` | Working |
-| Project versions | `get_project_versions` | Working |
-| Global config (statuses, priorities, resolutions, fields) | `dump_global_config` | Working |
-| Fields (system + custom) | `list_fields` | Working |
-| Workflows (statuses, transitions, screens, rule counts) | `list_active_workflows`, `list_all_workflows`, `get_workflow_statuses_and_transitions` | Working |
-| Workflow detail (XML-parsed rules, properties) | `get_workflow_detail` | Working |
-| Workflow schemes (issue type → workflow mapping) | `list_workflow_schemes`, `get_workflow_scheme` | Working |
-| Transition screens with fields | included in workflow tool | Working |
-| JSM approval detection | included in workflow tool | Working |
-| Permission schemes | `list_permission_schemes`, `get_permission_scheme` | Working |
-| Notification schemes | `list_notification_schemes`, `get_notification_scheme` | Working |
-| Issue security schemes | `get_issue_security_scheme` | Working |
-| Priority schemes | `get_priority_scheme` | Working |
-| Screens (489 total) | `list_screens`, `get_screen_tabs_and_fields` | Working |
-| Screen schemes (180 total) | `list_screen_schemes`, `get_screen_scheme` | Working (reconstructed from screens expand) |
-| Issue type schemes (49 total) | `list_issue_type_schemes`, `get_issue_type_scheme` | Working |
-| Automation rules (886 rules) | `list_automation_rules`, `get_automation_rule_detail`, `refresh_automation_cache` | Working |
-| Field usage on screens | `find_field_usage` | Working (screens only) |
-| Custom field contexts | `get_field_contexts` | Working (internal API, unsupported) |
-| Bulk dumps | `dump_workflows`, `dump_automation_rules` | Working |
-| Config chain analysis | `analyze_project_config_chain` | Working |
-| Free-text config search | `search_config` | Working |
-| Agile boards | `list_boards`, `get_board_configuration` | Working |
-| JSM service desks | `list_service_desks` | Working |
-| JSM SLAs | `get_service_desk_slas` | Working |
-| JSM queues | `get_service_desk_queues` | Working |
-| Filters (JQL) | `list_filters` | Working |
-| Dashboards | `list_dashboards` | Working |
-| Webhooks | `list_webhooks` | Working |
-| Project categories | `list_project_categories` | Working |
+## ScriptRunner custom endpoints
 
-## What's Missing
+`scriptrunner-endpoints/` holds eleven Groovy endpoints (field configurations,
+field configuration schemes, screen schemes, issue type screen schemes, workflow
+transition details, workflow XML export, custom field contexts, listeners,
+scheduled services, application links, effective permissions). All are wired
+into the tools above.
+A ScriptRunner-backed tool surfaces a clear error if its endpoint is missing or
+failing — failures are not silently degraded.
 
-### ScriptRunner Custom REST Endpoints (Java API)
+## Future work
 
-The Jira DC REST API has significant gaps. ScriptRunner REST endpoints can expose data via Jira's Java API that is otherwise inaccessible. These endpoints would live under `/rest/scriptrunner/latest/custom/` and return JSON.
+- **`get_effective_permissions` by-permission mode** — the "who holds permission
+  X" path uses a `PermissionManager.getAllUsers` signature that does not exist on
+  this version; the by-user path works and the Groovy fails the other path
+  gracefully.
+- **Plugin inventory** — a `jiraMcpPluginInventory` endpoint (installed apps,
+  versions, enabled state, license) via `PluginAccessor`. Not started.
+- **Issue link usage patterns** — which link types are actually used between
+  which projects. Requires JQL search sampling, not a config endpoint.
 
-#### P0 — Fixes Broken Tools
+## Removed
 
-- [ ] **`/jiraMcpFieldConfigurations`** — All field configurations with their field items (required/hidden/renderer per field). Uses `FieldLayoutManager`, `FieldConfigSchemeManager`. **Fixes**: `get_field_configuration`, `get_field_configuration_scheme`, partial `find_field_usage`.
-- [ ] **`/jiraMcpScreenSchemes`** — Screen schemes with operation mappings (Create/Edit/View → Screen). Uses `ScreenSchemeManager`. **Fixes**: replaces reconstructed screen schemes with authoritative data.
-- [ ] **`/jiraMcpIssueTypeScreenSchemes`** — Issue type screen schemes mapping issue types to screen schemes. Uses `IssueTypeScreenSchemeManager`. **Fixes**: currently returns 404, no workaround exists.
+- `list_webhooks` / `get_service_desk_slas` — no accessible API on Jira DC. Jira
+  System webhooks have no Java or REST API (Crowd's `WebhookRegistry` exposes
+  only Crowd webhooks); JSM SLA configuration is not exposed by the servicedeskapi
+  and the internal SLA Java API class is unidentified.
+- `dump_all_schemes`, `dump_full_instance`, `list_all_scheme_types` — redundant
+  with the per-scheme tools and targeted dumps.
 
-#### P1 — Replaces Fragile/Incomplete Data
+## Native DC REST gaps (worked around)
 
-- [ ] **`/jiraMcpWorkflowTransitionDetails`** — Full transition rule configuration: post-function parameters (e.g., which field a "Set Field Value" targets), condition arguments, validator arguments. Currently only class names are available via XML parsing.
-- [ ] **`/jiraMcpCustomFieldContexts`** — Custom field contexts with project/issue type scoping. Uses `FieldConfigSchemeManager`. **Replaces**: fragile internal API `/rest/internal/2/field/{id}/context` which could break on upgrades.
-- [ ] **`/jiraMcpListeners`** — All registered event listeners (ScriptRunner, built-in, plugin-based). Completely invisible to REST API, critical for understanding event handling and side effects.
+These native endpoints fail on Jira DC; each is now served another way:
 
-#### P2 — New Visibility
+- Screen schemes (`/screenscheme` → 404) → `jiraMcpScreenSchemes`.
+- Issue type screen schemes (`/issuetypescreenscheme` → 404) → `jiraMcpIssueTypeScreenSchemes`.
+- Field configurations (`/fieldconfiguration` → 404) → `jiraMcpFieldConfigurations`.
+- Field configuration schemes (`/fieldconfigurationscheme` → 404) → `jiraMcpFieldConfigurationSchemes`.
+- Custom field contexts → `jiraMcpCustomFieldContexts` (replaced the unsupported internal API).
+- Workflow transition rule content → `jiraMcpWorkflowTransitionDetails`.
+- Workflow schemes (`/workflowscheme` collection → 405) → discovered per-project, fanned out concurrently.
+- Issue type scheme mappings (`/issuetypescheme/mapping` → 400) → `?expand=issueTypes` on the individual GET.
+- Priority schemes → plural `/rest/api/2/priorityschemes` (the singular path 404s).
 
-- [ ] **`/jiraMcpScheduledServices`** — Jira services running on cron (mail handlers, backup services, etc.). Uses `ServiceManager`. Invisible to REST API.
-- [ ] **`/jiraMcpApplicationLinks`** — Application links to Confluence, Bitbucket, Bamboo, etc. Trust relationships and authentication config. Uses `ApplicationLinkService`.
-- [ ] **`/jiraMcpEffectivePermissions`** — Resolves actual effective permissions for a user on a project. Walks groups, roles, and grants to answer "who can actually do X on project Y". Uses `PermissionManager`.
+## Known API limitations (Jira DC 10.3.12)
 
-#### P3 — Nice to Have
-
-- [ ] **`/jiraMcpPluginInventory`** — Installed apps/plugins with versions, status (enabled/disabled), and license info. Uses `PluginAccessor`.
-
-### Medium Impact
-
-- [x] **`list_active_workflows`** — Filters out backup/copy/deprecated workflows by name pattern and cross-references with workflow schemes to show `inUse` flag. `list_workflows` renamed to `list_all_workflows`.
-- [ ] **Issue link usage patterns** — We know 18 link types exist, but not which ones are actually used between which projects (e.g., "INCIDENT always links to ASS via 'Action item of incident'"). Requires JQL search sampling, not a config endpoint.
-
-### Done (previously listed as missing)
-
-- [x] **Board configurations** — `list_boards`, `get_board_configuration` via Agile REST API.
-- [x] **SLAs** (JSM) — `get_service_desk_slas` via Service Desk API.
-- [x] **Queues** (JSM) — `get_service_desk_queues` via Service Desk API.
-- [x] **Webhooks / external integrations** — `list_webhooks` via REST API v2.
-- [x] **Filters & dashboards** — `list_filters`, `list_dashboards` via REST API v2.
-- [x] **Project categories** — `list_project_categories` via REST API v2.
-- [x] **Custom field contexts** — Implemented via `get_field_contexts` using internal API `/rest/internal/2/field/{id}/context`.
-- [x] **Transition rule details** — `get_workflow_detail` parses workflow XML to extract conditions, validators, and post-functions (class names, args). The Designer API (`get_workflow_statuses_and_transitions`) still only shows counts, but the XML parser gets the actual logic.
-- [x] **Workflow properties** — `get_workflow_detail` extracts `jira.issue.editable` and other properties from workflow XML.
-
-## Unavailable on DC 10.3.12 (no REST API)
-
-These endpoints don't exist on Jira DC 10.3.12. Workarounds applied where possible.
-
-- **Screen schemes** — `GET /rest/api/2/screenscheme` → 404. **FIXED**: reconstructed from `GET /rest/api/2/screens?expand=fieldScreenSchemes` which reveals the screen→scheme relationship. Operation (create/edit/view) is inferred from screen names. Returns 180 schemes.
-- **Issue type screen schemes** — `GET /rest/api/2/issuetypescreenscheme` → 404. No workaround found. Use `createmeta` per project+issuetype to see which fields appear on create screens.
-- **Field configurations** — `GET /rest/api/2/fieldconfiguration` → 404. No workaround found. Use `createmeta`/`editmeta` to see field required/hidden state per issue type.
-- **Field configuration schemes** — `GET /rest/api/2/fieldconfigurationscheme` → 404. No workaround found.
-- **Custom field contexts** — `GET /rest/api/2/fieldconfiguration` → 404. **FIXED**: use internal (unsupported) `GET /rest/internal/2/field/{id}/context` endpoint.
-- **Issue type scheme mappings** — `GET /rest/api/2/issuetypescheme/mapping` → 400. **FIXED**: use `?expand=issueTypes` on individual scheme GET.
-
-## Bugs Fixed (2026-03-22)
-
-### Round 1 — Initial fixes
-- `list_workflows` — was using `get_paged()` on an endpoint that returns a plain array. Fixed to use `self.get()`.
-- `list_workflow_schemes` — `GET /rest/api/2/workflowscheme` returns 405 on DC 10.3.12. Added fallback that discovers scheme IDs via `/rest/api/2/project/{key}/workflowscheme` per project.
-- `_get_project_config` — was using Cloud-only association endpoints (`/issuetypescheme/project`, etc.). Rewritten to use DC project-level endpoints.
-- `_safe()` in `dump.py` — now logs HTTP status codes alongside errors.
-
-### Round 2 — Cloud-vs-DC endpoint fixes
-- `list_screens` — was using pagination key `"values"`, DC 10 uses `"screens"`. Fixed. Now returns 489 screens.
-- `list_issue_type_schemes` — was using `get_paged()` with key `"values"`, DC 10 returns all in `"schemes"` key (not paginated). Fixed.
-- `get_issue_type_scheme` — was calling non-existent `/mapping` sub-resource. Fixed to use `?expand=issueTypes,defaultIssueType` on individual GET.
-- `export_automation_rules` — was missing `"rules"` key in response parsing. DC returns `{"rules": [...]}` but code only checked for `"results"` and `"values"`. Fixed. Now returns 886 rules.
-- `list_screen_schemes` — endpoint 404 on DC. Added try/except, returns empty list gracefully.
-- `list_issue_type_screen_schemes` — endpoint 404 on DC. Added try/except, returns empty list gracefully.
-- `list_field_configurations` — endpoint 404 on DC. Added try/except, returns empty list gracefully.
-- `list_field_configuration_schemes` — endpoint 404 on DC. Added try/except, returns empty list gracefully.
-- `get_field_configuration` / `get_field_configuration_scheme` — now return explicit "unavailable" error message instead of crashing.
-- `find_field_usage` — field configuration part now shows "unavailable on DC 10" instead of empty.
-- `list_all_scheme_types` — removed broken scheme types, added screens count, marks unavailable types.
-- `dump_all_schemes` — removed broken scheme fetches, added screens count, lists unavailable types.
-
-## Known API Limitations (Jira DC 10.3.12)
-
-- `GET /rest/api/2/workflowscheme` (collection) — returns 405. Individual `GET /rest/api/2/workflowscheme/{id}` works.
-- `GET /rest/api/2/screenscheme` — returns 404. No alternative known.
-- `GET /rest/api/2/issuetypescreenscheme` — returns 404. No alternative known.
-- `GET /rest/api/2/fieldconfiguration` — returns 404. No alternative known.
-- `GET /rest/api/2/fieldconfigurationscheme` — returns 404. No alternative known.
-- `GET /rest/api/2/issuetypescheme/mapping` — returns 400. Workaround: `?expand=issueTypes` on individual GET.
-- `GET /rest/api/2/issuetypescheme/project` — returns 400 ("not a valid scheme id: project").
-- Transition rule details (conditions/validators/post-functions content) — not available via REST API; admin JSP pages require browser session (302 redirect with PAT).
-- Workflow Designer plugin (`/rest/workflowDesigner/latest/workflows`) — returns layout with statuses, transitions, screen refs, and rule counts but not rule content.
-- **Rate limiting** — Jira DC returns 403 after ~50+ rapid concurrent requests. Bulk dump tools affected. Individual tools recover after ~10s pause.
+- Workflow Designer plugin (`/rest/workflowDesigner/latest/workflows`) — returns
+  layout, statuses, transitions and rule counts, but not rule content.
+- **Rate limiting** — Jira DC returns 403 after ~50+ rapid concurrent requests;
+  ScriptRunner fan-out and per-project discovery are capped at 10 concurrent.
