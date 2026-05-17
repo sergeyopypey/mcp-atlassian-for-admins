@@ -14,3 +14,4 @@ venv/
 .mcp.json
 .claude/
 selftest-output/
+script_registry_dump.json
