@@ -22,9 +22,6 @@ the data is not available through the native REST API.
 | Analysis | `analyze_project_config_chain`, `search_config` |
 | Administration **(SR)** | `list_listeners`, `list_scheduled_services`, `list_application_links`, `get_effective_permissions` |
 
-`run_selftest.py` exercises every tool against a live instance and reports
-per-tool pass/fail plus coverage.
-
 ## ScriptRunner custom endpoints
 
 `scriptrunner-endpoints/` holds eleven Groovy endpoints (field configurations,

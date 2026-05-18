@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+node_modules/
 .eggs/
 .env
 .venv/
@@ -15,3 +16,12 @@ venv/
 .claude/
 selftest-output/
 script_registry_dump.json
+
+# TypeScript / Node
+*.tsbuildinfo
+.DS_Store
+npm-debug.log*
+
+# Generated artifacts / dumps
+custom_fields.xlsx
+custom_fields_table.md
