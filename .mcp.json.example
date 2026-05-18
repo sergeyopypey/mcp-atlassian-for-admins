@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "jira-dc": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "cwd": "/absolute/path/to/jira-dc-mcp",
+      "env": {
+        "JIRA_BASE_URL": "https://jira.yourcompany.com",
+        "JIRA_AUTH_TYPE": "pat",
+        "JIRA_PAT": "your-personal-access-token"
+      }
+    }
+  }
+}
