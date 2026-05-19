@@ -23,6 +23,25 @@ npm run build
 
 See `.mcp.json.example` for an example configuration file.
 
+## Self-test
+
+`npm run selftest` exercises every tool against the live Jira instance and
+prints a coverage report — one line per tool variant, then a summary. It
+auto-discovers the IDs/keys parameterised tools need (project keys, scheme IDs,
+workflow names, ...) from the `list_*`/`dump_*` tools, so no manual setup is
+needed. Credentials are read from the environment, falling back to the
+`jira-dc` server's `env` block in `.mcp.json`.
+
+```bash
+npm run selftest                          # all 60 tools
+npm run selftest -- --only get_workflow_detail   # one tool (deps auto-included)
+npm run selftest -- --skip find_field_usage      # exclude slow tools
+```
+
+Each tool's raw JSON output is written to `selftest-output/<tool>.json`, with a
+full machine-readable report at `selftest-output/_report.json`. Flags:
+`--only`, `--skip`, `--out-dir PATH`, `--json PATH`.
+
 ## Tools
 
 All 60 tools are read-only. Tools marked † require the companion ScriptRunner
