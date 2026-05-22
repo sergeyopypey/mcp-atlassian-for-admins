@@ -19,9 +19,10 @@ export const userTools: ToolDef[] = [
   {
     name: "get_user",
     description:
-      "Get user details by key (e.g. JIRAUSER17908), username, or user ID. " +
+      "Get user details by key (e.g. JIRAUSER17908) or username. " +
+      "Works for both active and deactivated users. " +
       "Returns display name, email, active status.",
-    inputShape: { key: z.string().describe("User key, username, or user ID") },
+    inputShape: { key: z.string().describe("User key (JIRAUSER…) or username") },
     async handler({ client }, args) {
       try {
         const user = await client.getUser(args.key);
@@ -40,14 +41,20 @@ export const userTools: ToolDef[] = [
     name: "find_users",
     description:
       "Search for users by username, display name, or email address. " +
+      "By default returns only active users; set include_inactive=true to include deactivated accounts. " +
       "Returns matching users with key, name, email, and active status.",
     inputShape: {
-      query: z.string().describe("Search string (username, name, or email)"),
+      query: z.string().describe("Search string (username, display name, or email)"),
       max_results: z.coerce.number().int().optional().describe("Max results to return (default 10)"),
+      include_inactive: z.boolean().optional().describe("Include deactivated users (default false)"),
     },
     async handler({ client }, args) {
       try {
-        const users = await client.findUsers(args.query, args.max_results ?? 10);
+        const users = await client.findUsers(
+          args.query,
+          args.max_results ?? 10,
+          args.include_inactive ?? false,
+        );
         return dumps(users.map(userRecord));
       } catch (e) {
         if (isHttpStatusError(e)) {
@@ -61,7 +68,8 @@ export const userTools: ToolDef[] = [
   {
     name: "get_user_groups",
     description:
-      "Get groups a user belongs to, by user key or username. " +
+      "Get groups a user belongs to, by user key (JIRAUSER…) or username. " +
+      "Works for both active and deactivated users. " +
       "Returns a list of group names. Useful for tracing how a user gained project-role access.",
     inputShape: { key: z.string().describe("User key (e.g. JIRAUSER17908) or username") },
     async handler({ client }, args) {

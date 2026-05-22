@@ -59,6 +59,11 @@ function buildQuery(params: Params): string {
   return s ? `?${s}` : "";
 }
 
+/** Returns true for Jira user key format (e.g. JIRAUSER17908). */
+export function isUserKey(input: string): boolean {
+  return /^JIRAUSER\d+$/i.test(input);
+}
+
 export class JiraClient {
   private readonly config: JiraConfig;
   private readonly agent: Agent;
@@ -663,16 +668,24 @@ export class JiraClient {
   // Users
   // ======================================================================
 
-  async getUser(key: string): Promise<Json> {
-    return this.get("/rest/api/2/user", { key });
+  async getUser(input: string): Promise<Json> {
+    return this.get("/rest/api/2/user", isUserKey(input) ? { key: input } : { username: input });
   }
 
-  async findUsers(query: string, maxResults = 10): Promise<Json[]> {
-    return this.get("/rest/api/2/user/search", { username: query, maxResults });
+  async findUsers(query: string, maxResults = 10, includeInactive = false): Promise<Json[]> {
+    return this.get("/rest/api/2/user/search", {
+      username: query, // Even though parameter is username, this endpoint performs loose search on username, displayName, emailAddress
+      maxResults,
+      includeActive: true,
+      includeInactive,
+    });
   }
 
-  async getUserGroups(key: string): Promise<Json[]> {
-    const user = await this.get("/rest/api/2/user", { key, expand: "groups" });
+  async getUserGroups(input: string): Promise<Json[]> {
+    const params = isUserKey(input)
+      ? { key: input, expand: "groups" }
+      : { username: input, expand: "groups" };
+    const user = await this.get("/rest/api/2/user", params);
     return user?.groups?.items ?? [];
   }
 
