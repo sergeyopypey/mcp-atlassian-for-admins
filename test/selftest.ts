@@ -89,6 +89,8 @@ const HARVEST_PRODUCERS: Record<string, string> = {
   audit_item_ids: "get_automation_audit_log",
   group_names: "get_user_groups",
   issue_type_screen_scheme_ids: "list_issue_type_screen_schemes",
+  field_config_scheme_ids: "list_field_configuration_schemes",
+  filter_ids: "list_filters",
 };
 
 // ---------------------------------------------------------------------------
@@ -299,6 +301,12 @@ function harvest(h: Harvest, tool: string, parsed: any): void {
       break;
     case "list_issue_type_screen_schemes":
       add(h, "issue_type_screen_scheme_ids", objs.map((s) => s.id));
+      break;
+    case "list_field_configuration_schemes":
+      add(h, "field_config_scheme_ids", objs.map((s) => s.id));
+      break;
+    case "list_filters":
+      add(h, "filter_ids", objs.map((f) => f.id));
       break;
     case "list_service_desks":
       add(h, "service_desk_ids", objs.map((d) => d.id));
@@ -525,6 +533,7 @@ function buildTestPlan(): ToolCase[] {
     toolCase("list_scheduled_services", 1, noArgs),
     toolCase("list_application_links", 1, noArgs),
     toolCase("list_filters", 1, noArgs),
+    toolCase("list_field_configuration_schemes", 1, noArgs),
     toolCase("list_dashboards", 1, noArgs),
     toolCase("list_project_categories", 1, noArgs),
     toolCase("list_fields", 1, discListFields,
@@ -570,6 +579,8 @@ function buildTestPlan(): ToolCase[] {
       { skipReason: "instance has no agile boards" }),
     toolCase("get_service_desk_queues", 2, single("service_desk_ids", "service_desk_id"),
       { skipReason: "instance has no JSM service desks" }),
+    toolCase("get_filter", 2, single("filter_ids", "filter_id"),
+      { skipReason: "no filters visible to the authenticated user" }),
     toolCase("analyze_project_config_chain", 2, single("project_keys", "project_key")),
     toolCase("search_config", 2, discSearchConfig,
       { branches: ["search:project_key", "search:keyword"] }),
