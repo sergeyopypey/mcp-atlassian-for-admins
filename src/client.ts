@@ -591,6 +591,11 @@ export class JiraClient {
     }
   }
 
+  /** Fetch a single filter (incl. its JQL) by id — used to resolve board backing filters. */
+  async getFilter(id: number | string): Promise<Json> {
+    return this.get(`/rest/api/2/filter/${id}`, { expand: "jql,owner,sharePermissions" });
+  }
+
   async listDashboards(): Promise<Json[]> {
     try {
       return await this.getPaged("/rest/api/2/dashboard", "dashboards");
