@@ -527,9 +527,11 @@ export class JiraClient {
 
   // -- priority schemes (DC 10) -------------------------------------------
 
-  async listPrioritySchemes(): Promise<Json[]> {
+  async listPrioritySchemes(expand?: string): Promise<Json[]> {
+    const params: Params = {};
+    if (expand) params.expand = expand;
     try {
-      const data = await this.get("/rest/api/2/priorityschemes");
+      const data = await this.get("/rest/api/2/priorityschemes", params);
       return data && typeof data === "object" ? (data.schemes ?? []) : [];
     } catch (e) {
       if (isHttpStatusError(e) && e.status === 404) return [];

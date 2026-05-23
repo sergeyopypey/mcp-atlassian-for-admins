@@ -34,6 +34,38 @@ export async function resolveProjectConfig(
   const permScheme = await tryGet(`/rest/api/2/project/${projectKey}/permissionscheme`);
   const secScheme = await tryGet(`/rest/api/2/project/${projectKey}/issuesecuritylevelscheme`);
 
+  // Priority scheme: project-level endpoint (DC 7.7+/10.x, ProjectPrioritySchemeResource).
+  // Falls back to scanning the global priority-scheme list for one that lists this project.
+  let prioScheme = await tryGet(`/rest/api/2/project/${projectKey}/priorityscheme`);
+  if (!prioScheme) {
+    const schemes = await client.listPrioritySchemes("schemes.projectKeys");
+    prioScheme =
+      schemes.find((s: any) => (s.projectKeys ?? []).includes(project.key)) ?? null;
+  }
+
+  // Issue type screen scheme + field configuration scheme: resolved by scanning
+  // the (ScriptRunner-backed) global lists for the scheme whose `projects` list
+  // includes this project. Best-effort — if ScriptRunner is absent these throw,
+  // we degrade to null, and the analysis tool's "uses default" warning is then
+  // accurate. There is no project-level REST endpoint for these on DC 10.x.
+  const matchProject = (s: any): boolean =>
+    (s.projects ?? []).some(
+      (p: any) => Number(p.id) === pid || p.key === project.key,
+    );
+  let itssScheme: any = null;
+  let fieldConfigScheme: any = null;
+  try {
+    itssScheme = (await client.listIssueTypeScreenSchemes()).find(matchProject) ?? null;
+  } catch {
+    /* ScriptRunner unavailable — leave null */
+  }
+  try {
+    fieldConfigScheme =
+      (await client.listFieldConfigurationSchemes()).find(matchProject) ?? null;
+  } catch {
+    /* ScriptRunner unavailable — leave null */
+  }
+
   return {
     key: project.key,
     name: project.name,
@@ -64,6 +96,21 @@ export async function resolveProjectConfig(
         id: secScheme ? (secScheme.id ?? null) : null,
         name: secScheme ? secScheme.name : null,
       },
+      priorityScheme: {
+        id: prioScheme ? (prioScheme.id ?? null) : null,
+        name: prioScheme ? prioScheme.name : "Default",
+        defaultScheme: prioScheme ? (prioScheme.defaultScheme ?? null) : null,
+        defaultOptionId: prioScheme ? (prioScheme.defaultOptionId ?? null) : null,
+        optionIds: prioScheme ? (prioScheme.optionIds ?? []) : [],
+      },
+      issueTypeScreenScheme: {
+        id: itssScheme ? (itssScheme.id ?? null) : null,
+        name: itssScheme ? itssScheme.name : "Default",
+      },
+      fieldConfigurationScheme: {
+        id: fieldConfigScheme ? (fieldConfigScheme.id ?? null) : null,
+        name: fieldConfigScheme ? fieldConfigScheme.name : "Default",
+      },
     },
   };
 }
@@ -92,8 +139,9 @@ export const projectTools: ToolDef[] = [
     name: "get_project_config",
     description:
       "Get the full configuration chain for a project: which workflow scheme, " +
-      "issue type scheme, issue type screen scheme, and field configuration scheme " +
-      "it uses, plus its available issue types. Essential for understanding a project's setup.",
+      "priority scheme (with allowed priority option ids), issue type scheme, issue type " +
+      "screen scheme, and field configuration scheme it uses, plus its available issue types. " +
+      "Essential for understanding a project's setup.",
     inputShape: { project_key: z.string().describe("Jira project key (e.g. 'CORE')") },
     async handler({ client }, args) {
       return dumps(await resolveProjectConfig(client, args.project_key));
