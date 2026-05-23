@@ -33,8 +33,8 @@ needed. Credentials are read from the environment, falling back to the
 `jira-dc` server's `env` block in `.mcp.json`.
 
 ```bash
-npm run selftest                          # all 60 tools
-npm run selftest -- --only get_workflow_detail   # one tool (deps auto-included)
+npm run selftest                          # all tools
+npm run selftest -- --only get_workflow_transition_details   # one tool (deps auto-included)
 npm run selftest -- --skip find_field_usage      # exclude slow tools
 ```
 
@@ -60,7 +60,6 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 - `list_active_workflows` — active workflows (excludes backups and copies)
 - `list_all_workflows` — all workflows including backups and deprecated
-- `get_workflow_detail` — full workflow: statuses, transitions, conditions, validators, post-functions
 - `get_workflow_statuses_and_transitions` — statuses and transitions with screens and fields
 - `list_workflow_schemes` — all workflow schemes with issue-type mappings
 - `get_workflow_scheme` — one workflow scheme by ID
@@ -146,5 +145,4 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 **Dump**
 
 - `dump_global_config` — all fields, issue types, statuses, resolutions, priorities, link types
-- `dump_workflows` — all workflows with statuses, transitions, and rules
 - `dump_automation_rules` — all A4J rules from the cache

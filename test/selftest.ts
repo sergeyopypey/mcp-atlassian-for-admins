@@ -277,7 +277,6 @@ function harvest(h: Harvest, tool: string, parsed: any): void {
     }
     case "list_active_workflows":
     case "list_all_workflows":
-    case "dump_workflows":
       add(h, "workflow_names", objs.map((w) => w.name));
       break;
     case "list_screens":
@@ -507,7 +506,6 @@ function buildTestPlan(): ToolCase[] {
   const plan: ToolCase[] = [
     // ---- Phase 1: zero-arg discovery -----------------------------------
     toolCase("dump_global_config", 1, noArgs),
-    toolCase("dump_workflows", 1, noArgs),
     toolCase("dump_automation_rules", 1, noArgs),
     toolCase("list_projects", 1, noArgs),
     toolCase("list_active_workflows", 1, noArgs),
@@ -541,7 +539,6 @@ function buildTestPlan(): ToolCase[] {
     toolCase("get_project_versions", 2, single("project_keys", "project_key")),
     toolCase("get_createmeta_fields", 2, discCreatemeta,
       { skipReason: "no project/issue-type pair discovered from get_project_config" }),
-    toolCase("get_workflow_detail", 2, single("workflow_names", "workflow_name")),
     toolCase("get_workflow_statuses_and_transitions", 2, single("workflow_names", "workflow_name")),
     toolCase("get_workflow_scheme", 2, single("workflow_scheme_ids", "scheme_id")),
     toolCase("get_screen_tabs_and_fields", 2, single("screen_ids", "screen_id")),

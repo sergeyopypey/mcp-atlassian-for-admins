@@ -274,21 +274,6 @@ export class JiraClient {
     }
   }
 
-  /** Export a workflow as raw XML via a ScriptRunner custom endpoint. */
-  async exportWorkflowXml(workflowName: string): Promise<string | null> {
-    try {
-      const { status, text } = await this.request(
-        "GET",
-        "/rest/scriptrunner/latest/custom/jiraMcpExportWorkflow",
-        { params: { workflowName } },
-      );
-      if (status >= 400) return null;
-      return text.length > 0 ? text : null;
-    } catch {
-      return null;
-    }
-  }
-
   async getProjectStatuses(projectKey: string): Promise<Json[]> {
     return this.get(`/rest/api/2/project/${encodeURIComponent(projectKey)}/statuses`);
   }

@@ -23,7 +23,6 @@ Custom REST endpoints for Jira Data Center that expose Java API data unavailable
 | `jiraMcpScheduledServices.groovy` | `/jiraMcpScheduledServices` | P2 | Jira scheduled services (mail handlers, etc.) |
 | `jiraMcpApplicationLinks.groovy` | `/jiraMcpApplicationLinks` | P2 | Application links to Confluence, Bitbucket, etc. |
 | `jiraMcpEffectivePermissions.groovy` | `/jiraMcpEffectivePermissions` | P2 | Resolved effective permissions for user+project |
-| `jiraMcpExportWorkflow.groovy` | `/jiraMcpExportWorkflow` | — | Workflow OpenSymphony XML descriptor (powers `get_workflow_detail`) |
 
 All endpoints above are wired into working MCP tools (see the project README).
 A tool surfaces a clear error if its endpoint is missing or failing — failures
