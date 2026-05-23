@@ -58,12 +58,22 @@ jiraMcpWorkflowTransitionDetails(httpMethod: "GET") { MultivaluedMap queryParams
     String filterTransitionId = queryParams.getFirst("transitionId") as String
     WorkflowDescriptor descriptor = workflow.descriptor
 
-    // Collect all transitions from global actions and step actions
+    // Collect all transitions: initial actions (e.g. Create) + global actions +
+    // step actions. Initial actions live on the descriptor, not under any step,
+    // so they were previously missed entirely.
     List<ActionDescriptor> transitions = []
+    transitions.addAll(descriptor.initialActions as List<ActionDescriptor>)
     transitions.addAll(descriptor.globalActions as List<ActionDescriptor>)
     (descriptor.steps as List<StepDescriptor>).each { StepDescriptor step ->
         transitions.addAll(step.actions as List<ActionDescriptor>)
     }
+
+    // Index steps by id so a transition's target status can be resolved from the
+    // destination step's `jira.status.id` meta attribute (the OSWorkflow result
+    // status/oldStatus attributes are usually the literal string "null" in Jira).
+    Map<Integer, StepDescriptor> stepsById = (descriptor.steps as List<StepDescriptor>)
+        .collectEntries { StepDescriptor s -> [(s.id): s] }
+    def constantsManager = ComponentAccessor.constantsManager
 
     if (filterTransitionId) {
         int tid = filterTransitionId as int
@@ -101,23 +111,38 @@ jiraMcpWorkflowTransitionDetails(httpMethod: "GET") { MultivaluedMap queryParams
             ] as Map<String, Object>
         } ?: []
 
-        // Parse post-functions
-        List<Map<String, Object>> postFunctions = action.postFunctions?.collect { FunctionDescriptor f ->
+        // Parse post-functions. In Jira/OSWorkflow a transition's post-functions
+        // live on its unconditional RESULT, not on the action itself
+        // (action.postFunctions is almost always empty) — read both and merge so
+        // the standard 5–9 per transition are returned.
+        List<FunctionDescriptor> postFunctionDescs = []
+        if (action.postFunctions) {
+            postFunctionDescs.addAll(action.postFunctions as List<FunctionDescriptor>)
+        }
+        if (action.unconditionalResult?.postFunctions) {
+            postFunctionDescs.addAll(action.unconditionalResult.postFunctions as List<FunctionDescriptor>)
+        }
+        List<Map<String, Object>> postFunctions = postFunctionDescs.collect { FunctionDescriptor f ->
             [
                 className : f.args?.get("class.name") ?: f.args?.get("class"),
                 type      : f.type == 0 ? "class" : "plugin-module",
                 args      : extractArgs(f)
             ] as Map<String, Object>
-        } ?: []
+        }
 
-        // Get the result step/status
+        // Get the result step + resolve the target status name from the
+        // destination step's `jira.status.id` meta (the result status/oldStatus
+        // attributes are usually the literal "null" in Jira workflows).
         ResultDescriptor unconditionalResult = action.unconditionalResult
         Map<String, Object> resultStatus = null
         if (unconditionalResult) {
+            StepDescriptor destStep = stepsById[unconditionalResult.step]
+            String statusId = destStep?.metaAttributes?.get("jira.status.id") as String
+            String statusName = statusId ? constantsManager.getStatus(statusId)?.name : null
             resultStatus = [
-                stepId   : unconditionalResult.step,
-                status   : unconditionalResult.status,
-                oldStatus: unconditionalResult.oldStatus
+                stepId    : unconditionalResult.step,
+                statusId  : statusId,
+                statusName: statusName
             ] as Map<String, Object>
         }
 
