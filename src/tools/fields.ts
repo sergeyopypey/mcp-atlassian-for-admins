@@ -176,6 +176,33 @@ export const fieldTools: ToolDef[] = [
   },
 
   {
+    name: "list_field_configuration_schemes",
+    description:
+      "List all field configuration schemes with their id, name, associated " +
+      "projects and issue-type → field-configuration mappings. Use to find which " +
+      "scheme a project uses (match on projects) then drill in with " +
+      "get_field_configuration.",
+    inputShape: {},
+    async handler({ client }) {
+      const schemes = await client.listFieldConfigurationSchemes();
+      return dumps(
+        schemes.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description ?? "",
+          projects: s.projects ?? [],
+          mappings: (s.mappings ?? []).map((m: any) => ({
+            issueTypeId: m.issueTypeId,
+            issueTypeName: m.issueTypeName,
+            fieldConfigurationId: m.fieldConfigId,
+            fieldConfigurationName: m.fieldConfigName,
+          })),
+        })),
+      );
+    },
+  },
+
+  {
     name: "get_field_configuration_scheme",
     description:
       "Get field configuration scheme — maps issue types to field configurations.",
