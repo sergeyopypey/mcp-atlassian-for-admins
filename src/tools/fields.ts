@@ -34,7 +34,7 @@ export const fieldTools: ToolDef[] = [
         .array(z.string())
         .optional()
         .describe(
-          "List of specific field IDs to look up (e.g. ['customfield_12808', 'summary']). " +
+          "List of specific field IDs to look up (e.g. ['customfield_10001', 'summary']). " +
             "When provided, returns only these fields.",
         ),
     },
@@ -78,7 +78,7 @@ export const fieldTools: ToolDef[] = [
         .string()
         .optional()
         .describe(
-          "Project key (e.g. FINJ) — limits to fields scoped to that project or isAllProjects=true",
+          "Project key (e.g. PROJ) — limits to fields scoped to that project or isAllProjects=true",
         ),
       min_issues: z
         .coerce.number()
@@ -172,33 +172,6 @@ export const fieldTools: ToolDef[] = [
           renderer: item.rendererType,
         })),
       });
-    },
-  },
-
-  {
-    name: "list_field_configuration_schemes",
-    description:
-      "List all field configuration schemes with their id, name, associated " +
-      "projects and issue-type → field-configuration mappings. Use to find which " +
-      "scheme a project uses (match on projects) then drill in with " +
-      "get_field_configuration.",
-    inputShape: {},
-    async handler({ client }) {
-      const schemes = await client.listFieldConfigurationSchemes();
-      return dumps(
-        schemes.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          description: s.description ?? "",
-          projects: s.projects ?? [],
-          mappings: (s.mappings ?? []).map((m: any) => ({
-            issueTypeId: m.issueTypeId,
-            issueTypeName: m.issueTypeName,
-            fieldConfigurationId: m.fieldConfigId,
-            fieldConfigurationName: m.fieldConfigName,
-          })),
-        })),
-      );
     },
   },
 
@@ -300,8 +273,8 @@ export const fieldTools: ToolDef[] = [
       "Shows field name, required flag, allowed values (for select/radio/checkbox fields), " +
       "and default values. Use to discover what values an automation rule must set.",
     inputShape: {
-      project_key: z.string().describe("Jira project key (e.g. 'CL')"),
-      issue_type_id: z.string().describe("Issue type ID (e.g. '13602')"),
+      project_key: z.string().describe("Jira project key (e.g. 'PROJ')"),
+      issue_type_id: z.string().describe("Issue type ID (e.g. '10001')"),
     },
     async handler({ client }, args) {
       const raw = await client.getCreatemetaFields(args.project_key, args.issue_type_id);

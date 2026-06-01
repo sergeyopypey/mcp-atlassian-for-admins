@@ -1,9 +1,9 @@
 {
   "mcpServers": {
-    "jira-dc": {
+    "atlassian-for-admins": {
       "command": "node",
       "args": ["dist/index.js"],
-      "cwd": "/absolute/path/to/jira-dc-mcp",
+      "cwd": "/absolute/path/to/mcp-atlassian-for-admins",
       "env": {
         "JIRA_BASE_URL": "https://jira.yourcompany.com",
         "JIRA_AUTH_TYPE": "pat",

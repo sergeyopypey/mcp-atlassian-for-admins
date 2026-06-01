@@ -59,7 +59,7 @@ function buildQuery(params: Params): string {
   return s ? `?${s}` : "";
 }
 
-/** Returns true for Jira user key format (e.g. JIRAUSER17908). */
+/** Returns true for Jira user key format (e.g. JIRAUSER10000). */
 export function isUserKey(input: string): boolean {
   return /^JIRAUSER\d+$/i.test(input);
 }
@@ -271,6 +271,21 @@ export class JiraClient {
     } catch (e) {
       if (isHttpStatusError(e)) return null;
       throw e;
+    }
+  }
+
+  /** Export a workflow as raw XML via a ScriptRunner custom endpoint. */
+  async exportWorkflowXml(workflowName: string): Promise<string | null> {
+    try {
+      const { status, text } = await this.request(
+        "GET",
+        "/rest/scriptrunner/latest/custom/jiraMcpExportWorkflow",
+        { params: { workflowName } },
+      );
+      if (status >= 400) return null;
+      return text.length > 0 ? text : null;
+    } catch {
+      return null;
     }
   }
 
@@ -527,11 +542,9 @@ export class JiraClient {
 
   // -- priority schemes (DC 10) -------------------------------------------
 
-  async listPrioritySchemes(expand?: string): Promise<Json[]> {
-    const params: Params = {};
-    if (expand) params.expand = expand;
+  async listPrioritySchemes(): Promise<Json[]> {
     try {
-      const data = await this.get("/rest/api/2/priorityschemes", params);
+      const data = await this.get("/rest/api/2/priorityschemes");
       return data && typeof data === "object" ? (data.schemes ?? []) : [];
     } catch (e) {
       if (isHttpStatusError(e) && e.status === 404) return [];
@@ -589,11 +602,6 @@ export class JiraClient {
       if (isHttpStatusError(e)) return [];
       throw e;
     }
-  }
-
-  /** Fetch a single filter (incl. its JQL) by id — used to resolve board backing filters. */
-  async getFilter(id: number | string): Promise<Json> {
-    return this.get(`/rest/api/2/filter/${id}`, { expand: "jql,owner,sharePermissions" });
   }
 
   async listDashboards(): Promise<Json[]> {

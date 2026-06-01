@@ -51,29 +51,15 @@ export const boardTools: ToolDef[] = [
       const ranking = config.ranking ?? {};
       const filterRef = config.filter ?? {};
 
-      // The Agile board config exposes only the backing filter's id (no JQL).
-      // Resolve it to the actual query/owner via the filter REST endpoint.
-      const filterOut: Record<string, unknown> = {
-        id: filterRef.id,
-        name: filterRef.name,
-        jql: filterRef.query ?? filterRef.jql ?? null,
-      };
-      if (filterRef.id && !filterOut.jql) {
-        try {
-          const f = await client.getFilter(filterRef.id);
-          filterOut.name = f.name ?? filterOut.name;
-          filterOut.jql = f.jql ?? null;
-          filterOut.owner = f.owner ? (f.owner.displayName ?? null) : null;
-        } catch {
-          /* filter not visible / not found — leave jql null */
-        }
-      }
-
       const result: Record<string, unknown> = {
         id: config.id,
         name: config.name,
         type: config.type,
-        filter: filterOut,
+        filter: {
+          id: filterRef.id,
+          name: filterRef.name,
+          query: filterRef.query,
+        },
         columnConfig: {
           constraintType: (config.columnConfig ?? {}).constraintType,
           columns,

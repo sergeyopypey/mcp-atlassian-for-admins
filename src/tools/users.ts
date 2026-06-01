@@ -19,7 +19,7 @@ export const userTools: ToolDef[] = [
   {
     name: "get_user",
     description:
-      "Get user details by key (e.g. JIRAUSER17908) or username. " +
+      "Get user details by key (e.g. JIRAUSER10000) or username. " +
       "Works for both active and deactivated users. " +
       "Returns display name, email, active status.",
     inputShape: { key: z.string().describe("User key (JIRAUSER…) or username") },
@@ -71,7 +71,7 @@ export const userTools: ToolDef[] = [
       "Get groups a user belongs to, by user key (JIRAUSER…) or username. " +
       "Works for both active and deactivated users. " +
       "Returns a list of group names. Useful for tracing how a user gained project-role access.",
-    inputShape: { key: z.string().describe("User key (e.g. JIRAUSER17908) or username") },
+    inputShape: { key: z.string().describe("User key (e.g. JIRAUSER10000) or username") },
     async handler({ client }, args) {
       try {
         const groups = await client.getUserGroups(args.key);
@@ -92,7 +92,7 @@ export const userTools: ToolDef[] = [
       "List members of a Jira group. Auto-paginates. " +
       "Useful for auditing project-role membership when roles are populated by groups.",
     inputShape: {
-      group_name: z.string().describe("Exact group name (e.g. jira-jsm-finj-agents)"),
+      group_name: z.string().describe("Exact group name (e.g. jira-administrators)"),
       include_inactive: z.boolean().optional().describe("Include inactive users (default false)"),
       max_results: z.coerce.number().int().optional().describe("Cap on returned members (default 1000)"),
     },

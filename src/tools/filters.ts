@@ -1,37 +1,9 @@
 /** Filter and dashboard introspection tools. */
 
-import { z } from "zod";
 import { dumps } from "../json.js";
 import type { ToolDef } from "./types.js";
 
 export const filterTools: ToolDef[] = [
-  {
-    name: "get_filter",
-    description:
-      "Get a single JQL filter by id, including its JQL, owner and share " +
-      "permissions. Use to resolve a board's backing filter (get_board_configuration " +
-      "returns the filter id) into its actual query.",
-    inputShape: { filter_id: z.coerce.number().int().describe("Filter id (e.g. 15650)") },
-    async handler({ client }, args) {
-      const f = await client.getFilter(args.filter_id);
-      return dumps({
-        id: f.id,
-        name: f.name,
-        jql: f.jql,
-        description: f.description ?? "",
-        owner: f.owner ? (f.owner.displayName ?? null) : null,
-        favourite: f.favourite,
-        favouritedCount: f.favouritedCount,
-        sharePermissions: (f.sharePermissions ?? []).map((sp: any) => ({
-          type: sp.type,
-          project: sp.project ? (sp.project.key ?? null) : null,
-          role: sp.role ? (sp.role.name ?? null) : null,
-          group: sp.group ? (sp.group.name ?? null) : null,
-        })),
-      });
-    },
-  },
-
   {
     name: "list_filters",
     description:

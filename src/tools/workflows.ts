@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { dumps } from "../json.js";
+import { parseWorkflowXml } from "../lib/workflowXml.js";
 import type { ToolDef } from "./types.js";
 import { has } from "./util.js";
 
@@ -25,6 +26,15 @@ function buildWorkflowEntry(wf: any): Record<string, unknown> {
     statusCount: (wf.statuses ?? []).length,
     transitionCount: (wf.transitions ?? []).length,
   };
+}
+
+function extractStatusRef(t: any, key1: string, key2: string): any {
+  const val = t[key1];
+  if (val && typeof val === "object") return val.name || val.id;
+  if (val) return val;
+  const alt = t[key2];
+  if (alt && typeof alt === "object") return alt.name || alt.id;
+  return alt;
 }
 
 export const workflowTools: ToolDef[] = [
@@ -73,6 +83,74 @@ export const workflowTools: ToolDef[] = [
     async handler({ client }) {
       const workflows = await client.listWorkflows();
       return dumps(workflows.map(buildWorkflowEntry));
+    },
+  },
+
+  {
+    name: "get_workflow_detail",
+    description:
+      "Get full workflow detail by name: all statuses, transitions with conditions, " +
+      "validators, post-functions, and properties. Use for deep process analysis.",
+    inputShape: { workflow_name: z.string().describe("Exact workflow name") },
+    async handler({ client }, args) {
+      const workflowName = args.workflow_name;
+
+      // Try the ScriptRunner XML export first (richest detail).
+      const xmlStr = await client.exportWorkflowXml(workflowName);
+      if (xmlStr) {
+        try {
+          const parsed: Record<string, unknown> = parseWorkflowXml(xmlStr);
+          parsed.name = workflowName;
+          parsed.source = "scriptrunner-xml";
+          return dumps(parsed);
+        } catch (e) {
+          console.error(`Failed to parse workflow XML for '${workflowName}': ${e}`);
+        }
+      }
+
+      // Fallback to the REST API.
+      const wf = await client.getWorkflowByName(workflowName);
+      if (!wf) return dumps({ error: `Workflow '${workflowName}' not found` });
+
+      const statuses: any[] = wf.statuses ?? [];
+      let transitions: any[] = wf.transitions ?? [];
+
+      if (transitions.length === 0 && wf.id) {
+        const wfId =
+          typeof wf.id === "string" || typeof wf.id === "number"
+            ? wf.id
+            : (wf.id?.name ?? "");
+        try {
+          transitions = await client.getWorkflowTransitions(wfId);
+        } catch {
+          // ignore
+        }
+      }
+
+      return dumps({
+        name: workflowName,
+        description: wf.description ?? "",
+        isDefault: wf.isDefault ?? false,
+        source: "rest-api",
+        statuses: statuses.map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          category:
+            s.statusCategory && typeof s.statusCategory === "object"
+              ? (s.statusCategory.name ?? null)
+              : null,
+        })),
+        transitions: transitions.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          from: extractStatusRef(t, "from", "sourceStatus"),
+          to: extractStatusRef(t, "to", "targetStatus"),
+          conditions: t.conditions,
+          validators: t.validators,
+          postFunctions: t.postFunctions,
+          properties: t.properties,
+        })),
+      });
     },
   },
 
