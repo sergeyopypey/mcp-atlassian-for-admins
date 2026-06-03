@@ -17,8 +17,8 @@
  *   tsx test/selftest.ts [--only a,b] [--skip a,b] [--out-dir PATH] [--json PATH]
  *   npm run selftest -- --only list_projects
  *
- * Jira credentials are read from the environment, falling back to the `jira-dc`
- * server's `env` block in `.mcp.json`.
+ * Jira credentials are read from the environment, falling back to the
+ * `atlassian-for-admins` server's `env` block in `.mcp.json`.
  */
 
 import * as fs from "node:fs";
@@ -38,7 +38,7 @@ function loadEnv(): void {
   if (!fs.existsSync(mcp)) return;
   try {
     const cfg = JSON.parse(fs.readFileSync(mcp, "utf-8"));
-    const env = cfg?.mcpServers?.["jira-dc"]?.env;
+    const env = cfg?.mcpServers?.["atlassian-for-admins"]?.env;
     if (env && typeof env === "object") {
       for (const [key, value] of Object.entries(env)) {
         if (typeof value === "string" && process.env[key] === undefined) {

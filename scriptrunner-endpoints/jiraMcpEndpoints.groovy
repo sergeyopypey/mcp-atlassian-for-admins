@@ -71,6 +71,7 @@ import com.atlassian.jira.user.util.UserManager
 
 import com.atlassian.jira.workflow.JiraWorkflow
 import com.atlassian.jira.workflow.WorkflowManager
+import com.opensymphony.module.propertyset.PropertySet
 import com.opensymphony.workflow.loader.AbstractDescriptor
 import com.opensymphony.workflow.loader.ActionDescriptor
 import com.opensymphony.workflow.loader.ConditionDescriptor
@@ -81,6 +82,8 @@ import com.opensymphony.workflow.loader.ResultDescriptor
 import com.opensymphony.workflow.loader.StepDescriptor
 import com.opensymphony.workflow.loader.ValidatorDescriptor
 import com.opensymphony.workflow.loader.WorkflowDescriptor
+
+import org.ofbiz.core.entity.GenericValue
 
 import javax.ws.rs.core.MultivaluedMap
 import javax.ws.rs.core.Response
@@ -131,7 +134,7 @@ jiraMcpFieldConfigurations(httpMethod: "GET") { MultivaluedMap queryParams ->
                 rendererType  : item.rendererType,
                 description   : item.fieldDescription
             ]
-            return fieldMap
+            return fieldMap as Map<String, Object>
         }
 
         Map<String, Object> layoutMap = [
@@ -142,7 +145,7 @@ jiraMcpFieldConfigurations(httpMethod: "GET") { MultivaluedMap queryParams ->
             fieldCount  : items.size(),
             fields      : items
         ]
-        return layoutMap
+        return layoutMap as Map<String, Object>
     }
 
     Response.ok(new JsonBuilder([fieldConfigurations: results]).toString())
@@ -292,7 +295,7 @@ jiraMcpScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
             description : scheme.description,
             operations  : operations
         ]
-        return schemeMap
+        return schemeMap as Map<String, Object>
     }
 
     Response.ok(new JsonBuilder([screenSchemes: results]).toString())
@@ -350,7 +353,7 @@ jiraMcpIssueTypeScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
         // Get associated projects — getProjects() returns legacy GenericValues,
         // so resolve each to a Project object via the ProjectManager.
         List<Map<String, Object>> projects = []
-        issueTypeScreenSchemeManager.getProjects(scheme).each { gv ->
+        (issueTypeScreenSchemeManager.getProjects(scheme) as Collection<GenericValue>).each { GenericValue gv ->
             Project project = projectManager.getProjectObj(gv.getLong("id"))
             if (project != null) {
                 projects.add([id: project.id, key: project.key,
@@ -365,7 +368,7 @@ jiraMcpIssueTypeScreenSchemes(httpMethod: "GET") { MultivaluedMap queryParams ->
             mappings    : mappings,
             projects    : projects
         ]
-        return schemeMap
+        return schemeMap as Map<String, Object>
     }
 
     Response.ok(new JsonBuilder([issueTypeScreenSchemes: results]).toString())
@@ -485,7 +488,7 @@ jiraMcpWorkflowTransitionDetails(httpMethod: "GET") { MultivaluedMap queryParams
             preFunctions  : preFunctions,
             postFunctions : postFunctions
         ]
-        return transitionMap
+        return transitionMap as Map<String, Object>
     }
 
     Response.ok(new JsonBuilder([
@@ -551,7 +554,7 @@ jiraMcpCustomFieldContexts(httpMethod: "GET") { MultivaluedMap queryParams ->
                 isAllIssueTypes   : isGlobal,
                 issueTypes        : issueTypes
             ]
-            return contextMap
+            return contextMap as Map<String, Object>
         }
 
         Map<String, Object> fieldMap = [
@@ -560,7 +563,7 @@ jiraMcpCustomFieldContexts(httpMethod: "GET") { MultivaluedMap queryParams ->
             fieldType : field.customFieldType?.name,
             contexts  : contexts
         ]
-        return fieldMap
+        return fieldMap as Map<String, Object>
     }
 
     Response.ok(new JsonBuilder([fields: results]).toString())
@@ -640,8 +643,8 @@ jiraMcpScheduledServices(httpMethod: "GET") { MultivaluedMap queryParams ->
         // Collect service properties (filtering out sensitive ones). getProperties()
         // returns a Jira PropertySet — iterate its keys, not key/value pairs.
         Map<String, String> props = [:]
-        def propertySet = service.properties
-        propertySet?.getKeys()?.each { Object keyObj ->
+        PropertySet propertySet = service.properties
+        (propertySet?.getKeys() as Collection<Object>)?.each { Object keyObj ->
             String key = keyObj.toString()
             boolean isSensitive = sensitiveKeys.any { String s -> key.toLowerCase().contains(s) }
             props[key] = isSensitive ? "***REDACTED***" : propertySet.getAsActualType(key)?.toString()
@@ -659,7 +662,7 @@ jiraMcpScheduledServices(httpMethod: "GET") { MultivaluedMap queryParams ->
             isUsable        : service.isUsable(),
             properties      : props
         ]
-        return serviceMap
+        return serviceMap as Map<String, Object>
     }
 
     Response.ok(new JsonBuilder([
@@ -718,7 +721,7 @@ jiraMcpApplicationLinks(httpMethod: "GET") { MultivaluedMap queryParams ->
             authStatus  : authStatus,
             system      : system
         ]
-        return linkMap
+        return linkMap as Map<String, Object>
     }
 
     Response.ok(new JsonBuilder([
@@ -819,10 +822,10 @@ jiraMcpEffectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
             }
         }
 
-        result.user = username
-        result.userDisplayName = user.displayName
-        result.grantedPermissions = granted
-        result.deniedPermissions = denied
+        result['user'] = username
+        result['userDisplayName'] = user.displayName
+        result['grantedPermissions'] = granted
+        result['deniedPermissions'] = denied
     }
 
     if (permissionKeyParam) {
@@ -839,11 +842,11 @@ jiraMcpEffectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
                 ] as Map<String, Object>
             }
 
-            result.permission = permissionKeyParam
-            result.usersWithPermission = userList
-            result.userCount = usersWithPerm.size()
+            result['permission'] = permissionKeyParam
+            result['usersWithPermission'] = userList
+            result['userCount'] = usersWithPerm.size()
         } catch (Exception e) {
-            result.error = "Failed to resolve permission '${permissionKeyParam}': ${e.message}"
+            result['error'] = "Failed to resolve permission '${permissionKeyParam}': ${e.message}"
         }
     }
 
