@@ -1,8 +1,8 @@
 # Jira Data Center 10 MCP Server (TypeScript)
 
 A **read-only** Model Context Protocol (MCP) server for deep introspection of
-**Jira Data Center 10** — 60 tools covering projects, workflows, schemes,
-fields, automation, and more.
+**Jira Data Center 10** — 71 tools covering projects, workflows, schemes,
+fields, automation, Assets (Insight), and more.
 
 > **Read-only** — this server cannot modify any Jira configuration.
 
@@ -25,7 +25,7 @@ See `.mcp.json.example` for an example configuration file.
 
 ## Self-test
 
-`npm run selftest` exercises every tool against the live Jira instance and
+`npm run selftest` exercises all 71 tools against the live Jira instance and
 prints a coverage report — one line per tool variant, then a summary. It
 auto-discovers the IDs/keys parameterised tools need (project keys, scheme IDs,
 workflow names, ...) from the `list_*`/`dump_*` tools, so no manual setup is
@@ -33,7 +33,7 @@ needed. Credentials are read from the environment, falling back to the
 `jira-dc` server's `env` block in `.mcp.json`.
 
 ```bash
-npm run selftest                          # all 60 tools
+npm run selftest                          # all 71 tools
 npm run selftest -- --only get_workflow_detail   # one tool (deps auto-included)
 npm run selftest -- --skip find_field_usage      # exclude slow tools
 ```
@@ -44,7 +44,7 @@ full machine-readable report at `selftest-output/_report.json`. Flags:
 
 ## Tools
 
-All 60 tools are read-only. Tools marked † require the companion ScriptRunner
+All 71 tools are read-only. Tools marked † require the companion ScriptRunner
 Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 **Projects**
@@ -113,6 +113,25 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 - `list_service_desks` — all JSM service desks with project associations
 - `get_service_desk_queues` — queues for a JSM service desk
+
+**Assets (Insight)**
+
+Read-only introspection of Atlassian Assets (formerly Insight) on Data Center.
+Uses the `/rest/insight/1.0` API on the Jira host with IQL; override the base
+path with the optional `ASSETS_API_BASE` env var (default `/rest/insight/1.0`).
+The PAT user needs read access to the relevant Assets object schemas.
+
+- `list_object_schemas` — all Assets object schemas with key, status, object/type counts
+- `get_object_schema` — one object schema's metadata by ID
+- `list_object_types` — object types in a schema (flat list, or hierarchical tree)
+- `get_object_type` — one object type's metadata (parent, position, abstract, icon)
+- `get_object_type_attributes` — attribute definitions for an object type (type, references, cardinality, required)
+- `get_schema_attributes` — all attribute definitions across a schema
+- `list_object_statuses` — Assets status types and categories (global or schema-scoped)
+- `search_objects_iql` — search objects with IQL (Insight Query Language); paginated
+- `get_object` — one object by ID with its attribute values
+- `get_object_connected_tickets` — Jira issues connected to an object
+- `dump_assets_schema` — full structural snapshot: schema, statuses, and all object types with attributes
 
 **Filters & Dashboards**
 

@@ -1,4 +1,4 @@
-/** Aggregated registry of all 60 MCP tools. */
+/** Aggregated registry of all 71 MCP tools. */
 
 import type { ToolDef } from "./types.js";
 import { dumpTools } from "./dump.js";
@@ -15,6 +15,7 @@ import { analysisTools } from "./analysis.js";
 import { issueTools } from "./issues.js";
 import { userTools } from "./users.js";
 import { adminTools } from "./admin.js";
+import { assetsTools } from "./assets.js";
 
 export const ALL_TOOLS: ToolDef[] = [
   ...dumpTools,
@@ -31,6 +32,7 @@ export const ALL_TOOLS: ToolDef[] = [
   ...issueTools,
   ...userTools,
   ...adminTools,
+  ...assetsTools,
 ];
 
 export type { ToolDef, ToolContext } from "./types.js";

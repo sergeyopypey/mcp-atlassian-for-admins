@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { boundedAll } from "../../src/client.js";
+import { boundedAll, collectPagedEntries } from "../../src/client.js";
 import { pythonIsoUtc } from "../../src/tools/fields.js";
 import { parseWorkflowXml } from "../../src/lib/workflowXml.js";
 import { dumps } from "../../src/json.js";
@@ -24,6 +24,43 @@ test("boundedAll preserves input order and caps concurrency", async () => {
     Array.from({ length: 25 }, (_, i) => i),
   );
   assert.ok(maxInFlight <= 10, `maxInFlight=${maxInFlight} should be <= 10`);
+});
+
+test("collectPagedEntries pages until the total is reached", async () => {
+  const pages = [
+    { entries: [1, 2], total: 5 },
+    { entries: [3, 4], total: 5 },
+    { entries: [5], total: 5 },
+  ];
+  const seen: number[] = [];
+  const result = await collectPagedEntries<number>(async (page) => {
+    seen.push(page);
+    return pages[page - 1];
+  });
+  assert.deepEqual(result, [1, 2, 3, 4, 5]);
+  assert.deepEqual(seen, [1, 2, 3], "should stop once collected >= total");
+});
+
+test("collectPagedEntries stops on an empty page", async () => {
+  const pages = [
+    { entries: [1, 2], total: 99 },
+    { entries: [], total: 99 },
+  ];
+  const result = await collectPagedEntries<number>(async (page) => pages[page - 1]);
+  assert.deepEqual(result, [1, 2]);
+});
+
+test("collectPagedEntries honours maxResults and trims overshoot", async () => {
+  let fetched = 0;
+  const result = await collectPagedEntries<number>(
+    async (page) => {
+      fetched++;
+      return { entries: [page * 10, page * 10 + 1], total: 100 };
+    },
+    { maxResults: 3 },
+  );
+  assert.deepEqual(result, [10, 11, 20]);
+  assert.equal(fetched, 2, "should stop fetching once maxResults is reached");
 });
 
 test("pythonIsoUtc formats like datetime.isoformat()", () => {

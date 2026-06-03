@@ -89,6 +89,10 @@ const HARVEST_PRODUCERS: Record<string, string> = {
   audit_item_ids: "get_automation_audit_log",
   group_names: "get_user_groups",
   issue_type_screen_scheme_ids: "list_issue_type_screen_schemes",
+  schema_ids: "list_object_schemas",
+  object_type_ids: "list_object_types",
+  object_type_names: "list_object_types",
+  object_ids: "search_objects_iql",
 };
 
 // ---------------------------------------------------------------------------
@@ -338,6 +342,19 @@ function harvest(h: Harvest, tool: string, parsed: any): void {
     case "get_user_groups":
       add(h, "group_names", objs.map((g) => g.name));
       break;
+    case "list_object_schemas":
+      add(h, "schema_ids", objs.map((s) => s.id));
+      break;
+    case "list_object_types":
+      add(h, "object_type_ids", objs.map((t) => t.id));
+      add(h, "object_type_names", objs.map((t) => t.name));
+      break;
+    case "search_objects_iql":
+      // Returns an object { total, returned, objects: [...] }, not an array.
+      if (isPlainObject(parsed)) {
+        add(h, "object_ids", (parsed.objects ?? []).filter(isPlainObject).map((o: any) => o.id));
+      }
+      break;
   }
 }
 
@@ -487,6 +504,27 @@ function buildTestPlan(): ToolCase[] {
       "ScriptRunner endpoint may be undeployed")];
   };
 
+  const discListObjectTypes: DiscoverFn = (h) => {
+    const ids = h.schema_ids ?? [];
+    if (!ids.length) return null;
+    return [
+      V("flat", { schema_id: ids[0] }, "objtypes:flat"),
+      V("hierarchical", { schema_id: ids[0], hierarchical: true }, "objtypes:tree"),
+    ];
+  };
+  discListObjectTypes.needs = ["schema_ids"];
+
+  const discSearchIql: DiscoverFn = (h) => {
+    const names = h.object_type_names ?? [];
+    const schemaId = (h.schema_ids ?? [])[0];
+    if (!names.length || schemaId === undefined) return null;
+    return [
+      V("by object type", { iql: `objectType = "${names[0]}"`, schema_id: schemaId, max_results: 5 },
+        "iql:by_type"),
+    ];
+  };
+  discSearchIql.needs = ["object_type_names", "schema_ids"];
+
   const discEffectivePerms: DiscoverFn = (h) => {
     const pk = (h.project_keys ?? [])[0];
     if (!pk) return null;
@@ -522,6 +560,10 @@ function buildTestPlan(): ToolCase[] {
     toolCase("list_boards", 1, discListBoards,
       { branches: ["boards:no_project", "boards:project"] }),
     toolCase("list_service_desks", 1, noArgs),
+    toolCase("list_object_schemas", 1, noArgs,
+      { skipReason: "Assets (Insight) not installed on this instance" }),
+    toolCase("list_object_statuses", 1, noArgs,
+      { skipReason: "Assets (Insight) not installed on this instance" }),
     toolCase("list_issue_type_screen_schemes", 1, noArgs),
     toolCase("list_listeners", 1, noArgs),
     toolCase("list_scheduled_services", 1, noArgs),
@@ -586,6 +628,15 @@ function buildTestPlan(): ToolCase[] {
       { skipReason: "no issue type screen schemes discovered" }),
     toolCase("get_workflow_transition_details", 2, single("workflow_names", "workflow_name")),
     toolCase("get_effective_permissions", 2, discEffectivePerms),
+    toolCase("get_object_schema", 2, single("schema_ids", "schema_id"),
+      { skipReason: "no Assets object schema discovered" }),
+    toolCase("list_object_types", 2, discListObjectTypes,
+      { skipReason: "no Assets object schema discovered",
+        branches: ["objtypes:flat", "objtypes:tree"] }),
+    toolCase("get_schema_attributes", 2, single("schema_ids", "schema_id"),
+      { skipReason: "no Assets object schema discovered" }),
+    toolCase("dump_assets_schema", 2, single("schema_ids", "schema_id"),
+      { skipReason: "no Assets object schema discovered" }),
 
     // ---- Phase 3: second-order dependent -------------------------------
     toolCase("get_automation_audit_item", 3, single("audit_item_ids", "item_id"),
@@ -597,6 +648,18 @@ function buildTestPlan(): ToolCase[] {
     toolCase("get_group_members", 3, discGroupMembers,
       { skipReason: "no group discovered from get_user_groups / role members",
         branches: ["members:basic", "members:inactive"] }),
+    toolCase("get_object_type", 3, single("object_type_ids", "object_type_id"),
+      { skipReason: "no Assets object type discovered" }),
+    toolCase("get_object_type_attributes", 3, single("object_type_ids", "object_type_id"),
+      { skipReason: "no Assets object type discovered" }),
+    // search must precede get_object/* so object_ids are harvested in time.
+    toolCase("search_objects_iql", 3, discSearchIql,
+      { skipReason: "no Assets object type discovered to build an IQL query",
+        branches: ["iql:by_type"] }),
+    toolCase("get_object", 3, single("object_ids", "object_id"),
+      { skipReason: "no Assets object discovered from search_objects_iql" }),
+    toolCase("get_object_connected_tickets", 3, single("object_ids", "object_id"),
+      { skipReason: "no Assets object discovered from search_objects_iql" }),
 
     // ---- Phase 4: cache-mutating, run last -----------------------------
     toolCase("refresh_automation_cache", 4, noArgs),

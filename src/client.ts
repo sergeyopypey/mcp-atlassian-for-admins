@@ -16,6 +16,13 @@ const PAGINATION_MAX = 1000; // safety cap so we never loop forever
 const MAX_CONCURRENCY = 10; // cap parallel requests; DC returns 403 above ~50 rapid concurrent
 const REQUEST_TIMEOUT_MS = 60_000;
 
+// Assets (Insight) lives on the same DC host as Jira. The original
+// `/rest/insight/1.0` path works on every bundled version (JSM DC 4.15+); the
+// newer `/rest/assets/1.0` alias is identical by suffix. Default to insight for
+// the widest compatibility; override via ASSETS_API_BASE when needed.
+const INSIGHT_BASE = (process.env.ASSETS_API_BASE ?? "/rest/insight/1.0").replace(/\/+$/, "");
+const IQL_PAGE_SIZE = 50; // Insight default is 25; bump for fewer round-trips
+
 /** JSON value shorthand — Jira responses are untyped at the boundary. */
 type Json = any;
 
@@ -46,6 +53,27 @@ export async function boundedAll<T>(
   const workers = Array.from({ length: Math.min(limit, thunks.length) }, () => worker());
   await Promise.all(workers);
   return results;
+}
+
+/**
+ * Accumulate `page`/`resultPerPage`-style results until the reported total is
+ * reached, a page comes back empty, or the safety cap trips. Pure over the
+ * page-fetcher so it is unit-testable without a network. Insight/Assets paginate
+ * this way (not Jira's `startAt`/`maxResults`), so `getPaged` cannot be reused.
+ */
+export async function collectPagedEntries<T>(
+  fetchPage: (page: number) => Promise<{ entries: T[]; total: number }>,
+  opts: { maxResults?: number } = {},
+): Promise<T[]> {
+  const results: T[] = [];
+  for (let page = 1; page <= PAGINATION_MAX; page++) {
+    const { entries, total } = await fetchPage(page);
+    results.push(...entries);
+    if (entries.length === 0) break;
+    if (results.length >= total) break;
+    if (opts.maxResults !== undefined && results.length >= opts.maxResults) break;
+  }
+  return opts.maxResults !== undefined ? results.slice(0, opts.maxResults) : results;
 }
 
 function buildQuery(params: Params): string {
@@ -770,5 +798,86 @@ export class JiraClient {
       console.error(`A4J rule export unexpected error: ${e}`);
       return [];
     }
+  }
+
+  // ======================================================================
+  // Assets (Insight) — read operations on /rest/insight/1.0 (DC, IQL-based)
+  // ======================================================================
+
+  /** All object schemas. Insight wraps the list in `objectschemas`. */
+  async listObjectSchemas(): Promise<Json[]> {
+    const data = await this.get(`${INSIGHT_BASE}/objectschema/list`);
+    return data?.objectschemas ?? [];
+  }
+
+  async getObjectSchema(schemaId: number): Promise<Json> {
+    return this.get(`${INSIGHT_BASE}/objectschema/${schemaId}`);
+  }
+
+  /** Object types in a schema — flat list by default, hierarchical tree if asked. */
+  async listObjectTypes(schemaId: number, hierarchical = false): Promise<Json[]> {
+    const suffix = hierarchical ? "objecttypes" : "objecttypes/flat";
+    return this.get(`${INSIGHT_BASE}/objectschema/${schemaId}/${suffix}`);
+  }
+
+  /** All attribute definitions across a schema. */
+  async getSchemaAttributes(schemaId: number): Promise<Json[]> {
+    return this.get(`${INSIGHT_BASE}/objectschema/${schemaId}/attributes`);
+  }
+
+  async getObjectType(objectTypeId: number): Promise<Json> {
+    return this.get(`${INSIGHT_BASE}/objecttype/${objectTypeId}`);
+  }
+
+  /** Attribute definitions for one object type (the core of a structure audit). */
+  async getObjectTypeAttributes(objectTypeId: number): Promise<Json[]> {
+    return this.get(`${INSIGHT_BASE}/objecttype/${objectTypeId}/attributes`);
+  }
+
+  /** Status types — global, or scoped to a schema when `schemaId` is given. */
+  async listObjectStatuses(schemaId?: number): Promise<Json[]> {
+    return this.get(
+      `${INSIGHT_BASE}/config/statustype`,
+      schemaId !== undefined ? { objectSchemaId: schemaId } : undefined,
+    );
+  }
+
+  async getObject(objectId: number): Promise<Json> {
+    return this.get(`${INSIGHT_BASE}/object/${objectId}`);
+  }
+
+  async getObjectAttributes(objectId: number): Promise<Json[]> {
+    return this.get(`${INSIGHT_BASE}/object/${objectId}/attributes`);
+  }
+
+  /** Jira issues/tickets connected to an object. */
+  async getObjectConnectedTickets(objectId: number): Promise<Json> {
+    return this.get(`${INSIGHT_BASE}/objectconnectedtickets/${objectId}/tickets`);
+  }
+
+  /**
+   * IQL search over objects. Pages through `iql/objects` (page/resultPerPage)
+   * and returns the collected objects plus the reported total match count.
+   */
+  async searchObjectsIql(
+    iql: string,
+    opts: { objectSchemaId?: number; includeAttributes?: boolean; maxResults?: number } = {},
+  ): Promise<{ objects: Json[]; total: number }> {
+    let total = 0;
+    const objects = await collectPagedEntries<Json>(
+      async (page) => {
+        const data = await this.get(`${INSIGHT_BASE}/iql/objects`, {
+          iql,
+          objectSchemaId: opts.objectSchemaId,
+          page,
+          resultPerPage: IQL_PAGE_SIZE,
+          includeAttributes: opts.includeAttributes ?? true,
+        });
+        total = data?.totalFilterCount ?? 0;
+        return { entries: data?.objectEntries ?? [], total };
+      },
+      { maxResults: opts.maxResults },
+    );
+    return { objects, total };
   }
 }
