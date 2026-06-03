@@ -15,8 +15,5 @@
   not exist on this Jira version. Fix or replace it; the by-user path already
   works and the Groovy fails the other path gracefully for now.
 
-- **Plugin inventory** — a `jiraMcpPluginInventory` endpoint (installed apps,
-  versions, enabled state, license) via `PluginAccessor`. Not started.
-
 - **Issue link usage patterns** — which link types are actually used between
   which projects. Requires JQL search sampling, not a config endpoint.

@@ -23,6 +23,10 @@ const REQUEST_TIMEOUT_MS = 60_000;
 const INSIGHT_BASE = (process.env.ASSETS_API_BASE ?? "/rest/insight/1.0").replace(/\/+$/, "");
 const IQL_PAGE_SIZE = 50; // Insight default is 25; bump for fewer round-trips
 
+// UPM (plugin manager) only emits its own `application/vnd.atl.plugins.*+json`
+// media types; the client's default `Accept: application/json` gets a 406.
+const UPM_ACCEPT = { Accept: "*/*" };
+
 /** JSON value shorthand — Jira responses are untyped at the boundary. */
 type Json = any;
 
@@ -113,12 +117,12 @@ export class JiraClient {
   private async request(
     method: string,
     path: string,
-    opts: { params?: Params; json?: Json } = {},
+    opts: { params?: Params; json?: Json; headers?: Record<string, string> } = {},
   ): Promise<{ status: number; text: string }> {
     const url = this.config.baseUrl + path + buildQuery(opts.params);
     const init: FetchInit = {
       method,
-      headers: this.config.headers,
+      headers: opts.headers ? { ...this.config.headers, ...opts.headers } : this.config.headers,
       dispatcher: this.agent,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     };
@@ -132,8 +136,8 @@ export class JiraClient {
     return text.length > 0 ? JSON.parse(text) : undefined;
   }
 
-  async get(path: string, params?: Params): Promise<Json> {
-    const { status, text } = await this.request("GET", path, { params });
+  async get(path: string, params?: Params, headers?: Record<string, string>): Promise<Json> {
+    const { status, text } = await this.request("GET", path, { params, headers });
     if (status >= 400) throw new HttpStatusError(status, text, this.config.baseUrl + path);
     return this.parse(text);
   }
@@ -879,5 +883,38 @@ export class JiraClient {
       { maxResults: opts.maxResults },
     );
     return { objects, total };
+  }
+
+  // ======================================================================
+  // Plugins (UPM / Universal Plugin Manager) — read operations
+  // ======================================================================
+
+  /**
+   * All registered plugins. UPM wraps the list in `plugins`. UPM only serves its
+   * own vendor media types, so the default `Accept: application/json` draws a 406;
+   * UPM_ACCEPT sends a wildcard and lets content negotiation pick UPM's JSON.
+   */
+  async listPlugins(): Promise<Json[]> {
+    const data = await this.get("/rest/plugins/1.0/", undefined, UPM_ACCEPT);
+    return data?.plugins ?? [];
+  }
+
+  /**
+   * License detail for one plugin. License lookup is best-effort: plugins without
+   * a license answer 404, and some bundled apps (e.g. language packs) even 500 on
+   * this route. Any HTTP error → null so a bulk dump never aborts on one plugin;
+   * non-HTTP errors (network/timeout) still propagate.
+   */
+  async getPluginLicense(pluginKey: string): Promise<Json | null> {
+    try {
+      return await this.get(
+        `/rest/plugins/1.0/${encodeURIComponent(pluginKey)}-key/license`,
+        undefined,
+        UPM_ACCEPT,
+      );
+    } catch (e) {
+      if (isHttpStatusError(e)) return null;
+      throw e;
+    }
   }
 }

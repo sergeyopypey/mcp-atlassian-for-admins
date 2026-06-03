@@ -560,6 +560,7 @@ function buildTestPlan(): ToolCase[] {
     toolCase("list_boards", 1, discListBoards,
       { branches: ["boards:no_project", "boards:project"] }),
     toolCase("list_service_desks", 1, noArgs),
+    toolCase("dump_plugin_inventory", 1, noArgs),
     toolCase("list_object_schemas", 1, noArgs,
       { skipReason: "Assets (Insight) not installed on this instance" }),
     toolCase("list_object_statuses", 1, noArgs,
