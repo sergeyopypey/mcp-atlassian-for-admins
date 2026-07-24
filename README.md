@@ -1,7 +1,7 @@
 # Jira Data Center 10 MCP Server (TypeScript)
 
 A **read-only** Model Context Protocol (MCP) server for deep introspection of
-**Jira Data Center 10** — 72 tools covering projects, workflows, schemes,
+**Jira Data Center 10** — 73 tools covering projects, workflows, schemes,
 fields, automation, Assets (Insight), and more.
 
 > **Read-only** — this server cannot modify any Jira configuration.
@@ -25,7 +25,7 @@ See `.mcp.json.example` for an example configuration file.
 
 ## Self-test
 
-`npm run selftest` exercises all 72 tools against the live Jira instance and
+`npm run selftest` exercises all 73 tools against the live Jira instance and
 prints a coverage report — one line per tool variant, then a summary. It
 auto-discovers the IDs/keys parameterised tools need (project keys, scheme IDs,
 workflow names, ...) from the `list_*`/`dump_*` tools, so no manual setup is
@@ -33,7 +33,7 @@ needed. Credentials are read from the environment, falling back to the
 `jira-dc` server's `env` block in `.mcp.json`.
 
 ```bash
-npm run selftest                          # all 72 tools
+npm run selftest                          # all 73 tools
 npm run selftest -- --only get_workflow_detail   # one tool (deps auto-included)
 npm run selftest -- --skip find_field_usage      # exclude slow tools
 ```
@@ -44,7 +44,8 @@ full machine-readable report at `selftest-output/_report.json`. Flags:
 
 ## Tools
 
-All 72 tools are read-only. Tools marked † require the companion ScriptRunner
+All 73 tools are read-only against Jira (one, `dump_script_registry`, also writes
+its export bundle to a local directory). Tools marked † require the companion ScriptRunner
 Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 **Projects**
@@ -168,3 +169,4 @@ The PAT user needs read access to the relevant Assets object schemas.
 - `dump_global_config` — all fields, issue types, statuses, resolutions, priorities, link types
 - `dump_workflows` — all workflows with statuses, transitions, and rules
 - `dump_automation_rules` — all A4J rules from the cache
+- `dump_script_registry` — full ScriptRunner inventory (listeners, REST endpoints, jobs, behaviours, fragments, script fields, resources, workflow functions, script-root `.groovy` files, instance metadata, `Output.csv`) reproducing ScriptRunner's "Export all scripts" bundle. **Writes the bundle to a local directory** (`output_dir`); reads from Jira are read-only.

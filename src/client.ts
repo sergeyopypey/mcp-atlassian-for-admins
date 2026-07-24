@@ -196,6 +196,38 @@ export class JiraClient {
     return this.parse(text);
   }
 
+  /**
+   * GET a binary response (no JSON/text decoding). The normal request path
+   * reads `res.text()`, which mangles binary payloads such as zip archives.
+   */
+  async getBytes(path: string, params?: Params): Promise<Buffer> {
+    const url = this.config.baseUrl + path + buildQuery(params);
+    // The default `Accept: application/json` makes binary endpoints answer 406
+    // (e.g. ScriptRunner's zip export); accept anything for raw downloads.
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { ...this.config.headers, Accept: "*/*" },
+      dispatcher: this.agent,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (res.status >= 400) {
+      throw new HttpStatusError(res.status, await res.text(), url);
+    }
+    return Buffer.from(await res.arrayBuffer());
+  }
+
+  /**
+   * Download ScriptRunner's "Export all scripts" bundle as a zip Buffer.
+   *
+   * This is the same endpoint the script-registry admin page calls; a PAT
+   * (admin) is sufficient — no WebSudo. `isActive=false` exports everything
+   * (the "Export all scripts" button); `isActive=true` is "Export active
+   * scripts only".
+   */
+  async exportScriptRegistryZip(activeOnly = false): Promise<Buffer> {
+    return this.getBytes("/rest/scriptrunner/latest/script/export", { isActive: activeOnly });
+  }
+
   // ======================================================================
   // REST API v2 — read operations
   // ======================================================================
