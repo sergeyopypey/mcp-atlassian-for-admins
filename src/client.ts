@@ -565,6 +565,37 @@ export class JiraClient {
     return this.scriptrunnerGet("jiraMcpWorkflowTransitionDetails", params);
   }
 
+  // -- server logs (ScriptRunner) -----------------------------------------
+
+  async listServerLogFiles(): Promise<Json> {
+    return this.scriptrunnerGet("jiraMcpServerLog", { action: "list" });
+  }
+
+  async tailServerLog(file?: string, lines?: number): Promise<Json> {
+    return this.scriptrunnerGet("jiraMcpServerLog", { action: "tail", file, lines });
+  }
+
+  async grepServerLog(opts: {
+    pattern: string;
+    file?: string;
+    rotations?: number;
+    contextBefore?: number;
+    contextAfter?: number;
+    caseInsensitive?: boolean;
+    maxMatches?: number;
+  }): Promise<Json> {
+    return this.scriptrunnerGet("jiraMcpServerLog", {
+      action: "grep",
+      pattern: opts.pattern,
+      file: opts.file,
+      rotations: opts.rotations,
+      contextBefore: opts.contextBefore,
+      contextAfter: opts.contextAfter,
+      caseInsensitive: opts.caseInsensitive,
+      maxMatches: opts.maxMatches,
+    });
+  }
+
   // -- permission schemes -------------------------------------------------
 
   async listPermissionSchemes(): Promise<Json[]> {

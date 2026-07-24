@@ -18,6 +18,7 @@
  *   jiraMcpApplicationLinks             - application links to Confluence, Bitbucket, etc.
  *   jiraMcpEffectivePermissions         - resolved effective permissions for user+project
  *   jiraMcpExportWorkflow               - workflow OpenSymphony XML descriptor
+ *   jiraMcpServerLog                    - list/tail/grep server log files (jira-administrators only)
  *
  * All endpoints are read-only (GET) and return JSON unless noted otherwise.
  */
@@ -33,6 +34,7 @@ import com.atlassian.applinks.api.ApplicationType
 
 import com.atlassian.jira.component.ComponentAccessor
 import com.atlassian.jira.config.IssueTypeManager
+import com.atlassian.jira.config.util.JiraHome
 import com.atlassian.jira.issue.issuetype.IssueType
 import com.atlassian.jira.project.Project
 import com.atlassian.jira.project.ProjectManager
@@ -84,6 +86,11 @@ import com.opensymphony.workflow.loader.ValidatorDescriptor
 import com.opensymphony.workflow.loader.WorkflowDescriptor
 
 import org.ofbiz.core.entity.GenericValue
+
+import java.nio.charset.StandardCharsets
+import java.util.regex.Pattern
+import java.util.regex.PatternSyntaxException
+import java.util.zip.GZIPInputStream
 
 import javax.ws.rs.core.MultivaluedMap
 import javax.ws.rs.core.Response
@@ -878,9 +885,270 @@ jiraMcpExportWorkflow(httpMethod: "GET", groups: ["jira-administrators"]) { Mult
     return Response.ok(workflowInXML).type("application/xml").build()
 }
 
+/**
+ * Server Log Access
+ *
+ * Read-only list/tail/grep over the Jira server's log files, replacing the
+ * SSH-and-grep loop during incident investigations. Access is restricted to
+ * plain files directly inside the Jira log directory (<jira.home>/log) and the
+ * Tomcat log directory (<catalina.base>/logs) — no paths, no traversal.
+ * Members of jira-administrators only.
+ *
+ * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpServerLog
+ * Query params:
+ *   action          - "list" | "tail" | "grep" (default "grep")
+ *   file            - log file name without path (default "atlassian-jira.log");
+ *                     ".gz" files are decompressed on the fly
+ *   lines           - tail: trailing lines to return (default 100, max 1000)
+ *   pattern         - grep: Java regex matched against each line (required)
+ *   caseInsensitive - grep: "true" for case-insensitive matching
+ *   rotations       - grep: also scan <file>.1 .. <file>.N, oldest first, so
+ *                     matches come back in chronological order (default 0, max 100)
+ *   contextBefore   - grep: context lines before each match (default 0, max 10)
+ *   contextAfter    - grep: context lines after each match (default 0, max 10)
+ *   maxMatches      - grep: stop after this many matches (default 200, max 1000)
+ *   maxLineChars    - tail/grep: truncate longer lines (default 2000, max 10000)
+ *
+ * Response (grep): { "pattern", "filesScanned", "matchCount", "truncated", "matches": [...] }
+ */
+jiraMcpServerLog(httpMethod: "GET", groups: ["jira-administrators"]) { MultivaluedMap queryParams ->
+    String action = (queryParams.getFirst("action") as String) ?: "grep"
+
+    List<File> logDirs = serverLogDirs()
+    if (logDirs.isEmpty()) {
+        return Response.status(500)
+            .entity(new JsonBuilder([error: "No readable log directory found (jira.home/log, catalina.base/logs)"]).toString())
+            .header("Content-Type", "application/json")
+            .build()
+    }
+
+    if (action == "list") {
+        List<Map<String, Object>> files = []
+        logDirs.each { File dir ->
+            (dir.listFiles() ?: new File[0]).each { File f ->
+                if (f.isFile()) {
+                    files.add([
+                        name        : f.name,
+                        dir         : dir.absolutePath,
+                        sizeBytes   : f.length(),
+                        lastModified: new Date(f.lastModified()).format("yyyy-MM-dd'T'HH:mm:ssZ")
+                    ] as Map<String, Object>)
+                }
+            }
+        }
+        files.sort { Map<String, Object> a, Map<String, Object> b ->
+            (b.lastModified as String) <=> (a.lastModified as String)
+        }
+        return Response.ok(new JsonBuilder([
+            logDirs: logDirs.collect { File d -> d.absolutePath },
+            count  : files.size(),
+            files  : files
+        ]).toString())
+            .header("Content-Type", "application/json")
+            .build()
+    }
+
+    String fileName = (queryParams.getFirst("file") as String) ?: "atlassian-jira.log"
+    int maxLineChars = intQueryParam(queryParams, "maxLineChars", 2000, 100, 10000)
+
+    if (action == "tail") {
+        File logFile = resolveServerLogFile(logDirs, fileName)
+        if (logFile == null) {
+            return Response.status(404)
+                .entity(new JsonBuilder([error: "Log file not found in log directories: ${fileName}"]).toString())
+                .header("Content-Type", "application/json")
+                .build()
+        }
+        int lines = intQueryParam(queryParams, "lines", 100, 1, 1000)
+
+        ArrayDeque<String> tail = new ArrayDeque<String>(lines)
+        BufferedReader reader = openServerLog(logFile)
+        try {
+            String line
+            while ((line = reader.readLine()) != null) {
+                if (tail.size() >= lines) tail.removeFirst()
+                tail.addLast(trimLogLine(line, maxLineChars))
+            }
+        } finally {
+            reader.close()
+        }
+
+        return Response.ok(new JsonBuilder([
+            file     : logFile.name,
+            dir      : logFile.parentFile.absolutePath,
+            lineCount: tail.size(),
+            lines    : new ArrayList<String>(tail)
+        ]).toString())
+            .header("Content-Type", "application/json")
+            .build()
+    }
+
+    if (action == "grep") {
+        String patternParam = queryParams.getFirst("pattern") as String
+        if (!patternParam) {
+            return Response.status(400)
+                .entity(new JsonBuilder([error: "pattern parameter is required for action=grep"]).toString())
+                .header("Content-Type", "application/json")
+                .build()
+        }
+        boolean caseInsensitive = (queryParams.getFirst("caseInsensitive") as String) == "true"
+        Pattern pattern
+        try {
+            pattern = Pattern.compile(patternParam, caseInsensitive ? Pattern.CASE_INSENSITIVE : 0)
+        } catch (PatternSyntaxException e) {
+            return Response.status(400)
+                .entity(new JsonBuilder([error: "Invalid regex: ${e.message}"]).toString())
+                .header("Content-Type", "application/json")
+                .build()
+        }
+        int rotations = intQueryParam(queryParams, "rotations", 0, 0, 100)
+        int contextBefore = intQueryParam(queryParams, "contextBefore", 0, 0, 10)
+        int contextAfter = intQueryParam(queryParams, "contextAfter", 0, 0, 10)
+        int maxMatches = intQueryParam(queryParams, "maxMatches", 200, 1, 1000)
+
+        // Highest rotation number first (oldest entries), current file last, so
+        // concatenated matches come out in chronological order like `grep | sort`.
+        List<File> targets = []
+        for (int i = rotations; i >= 1; i--) {
+            File rotated = resolveServerLogFile(logDirs, "${fileName}.${i}" as String)
+            if (rotated == null) rotated = resolveServerLogFile(logDirs, "${fileName}.${i}.gz" as String)
+            if (rotated != null) targets.add(rotated)
+        }
+        File current = resolveServerLogFile(logDirs, fileName)
+        if (current != null) targets.add(current)
+        if (targets.isEmpty()) {
+            return Response.status(404)
+                .entity(new JsonBuilder([error: "Log file not found in log directories: ${fileName}"]).toString())
+                .header("Content-Type", "application/json")
+                .build()
+        }
+
+        List<Map<String, Object>> matches = []
+        List<String> filesScanned = []
+        boolean truncated = false
+        for (File f in targets) {
+            filesScanned.add(f.name)
+            truncated = grepServerLogFile(f, pattern, contextBefore, contextAfter,
+                maxMatches, maxLineChars, matches)
+            if (truncated) break
+        }
+
+        return Response.ok(new JsonBuilder([
+            pattern     : patternParam,
+            filesScanned: filesScanned,
+            matchCount  : matches.size(),
+            truncated   : truncated,
+            matches     : matches
+        ]).toString())
+            .header("Content-Type", "application/json")
+            .build()
+    }
+
+    return Response.status(400)
+        .entity(new JsonBuilder([error: "Unknown action: ${action} (expected list, tail, or grep)"]).toString())
+        .header("Content-Type", "application/json")
+        .build()
+}
+
 // ---------------------------------------------------------------------------
 // Helper methods (shared by the endpoint closures above)
 // ---------------------------------------------------------------------------
+
+/** Directories log files may be served from (canonical, existing only). */
+List<File> serverLogDirs() {
+    List<File> dirs = []
+    try {
+        JiraHome jiraHome = ComponentAccessor.getComponent(JiraHome)
+        File logDir = jiraHome.logDirectory
+        if (logDir != null && logDir.isDirectory()) dirs.add(logDir.canonicalFile)
+    } catch (Exception ignored) {
+    }
+    String catalinaBase = System.getProperty("catalina.base")
+    if (catalinaBase) {
+        File tomcatLogs = new File(catalinaBase, "logs")
+        if (tomcatLogs.isDirectory()) dirs.add(tomcatLogs.canonicalFile)
+    }
+    return dirs
+}
+
+/**
+ * Resolve a bare file name against the allowed log directories. The name
+ * whitelist has no separators, and the canonical parent must be the log
+ * directory itself — both checks together make traversal impossible.
+ */
+File resolveServerLogFile(List<File> logDirs, String name) {
+    if (!name || !(name ==~ /[A-Za-z0-9][A-Za-z0-9._-]*/)) return null
+    for (File dir in logDirs) {
+        File candidate = new File(dir, name)
+        if (candidate.isFile() && candidate.canonicalFile.parentFile == dir) return candidate
+    }
+    return null
+}
+
+/** Open a log file as UTF-8 text (malformed bytes replaced), gunzipping *.gz. */
+BufferedReader openServerLog(File f) {
+    InputStream stream = new FileInputStream(f)
+    if (f.name.endsWith(".gz")) stream = new GZIPInputStream(stream)
+    return new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))
+}
+
+String trimLogLine(String line, int maxChars) {
+    return line.length() > maxChars ? line.substring(0, maxChars) + "...[truncated]" : line
+}
+
+int intQueryParam(MultivaluedMap queryParams, String name, int defaultValue, int min, int max) {
+    String raw = queryParams.getFirst(name) as String
+    if (!raw) return defaultValue
+    try {
+        return Math.max(min, Math.min(max, raw as int))
+    } catch (NumberFormatException ignored) {
+        return defaultValue
+    }
+}
+
+/**
+ * Scan one file for pattern matches, appending to `matches` with grep-style
+ * before/after context. Returns true if maxMatches was hit (scan truncated).
+ */
+boolean grepServerLogFile(File f, Pattern pattern, int contextBefore, int contextAfter,
+                          int maxMatches, int maxLineChars, List<Map<String, Object>> matches) {
+    BufferedReader reader = openServerLog(f)
+    try {
+        ArrayDeque<String> before = new ArrayDeque<String>()
+        Map<String, Object> lastMatch = null
+        int afterRemaining = 0
+        int lineNumber = 0
+        String line
+        while ((line = reader.readLine()) != null) {
+            lineNumber++
+            if (pattern.matcher(line).find()) {
+                if (matches.size() >= maxMatches) return true
+                Map<String, Object> match = [
+                    file      : f.name,
+                    lineNumber: lineNumber,
+                    text      : trimLogLine(line, maxLineChars)
+                ] as Map<String, Object>
+                if (contextBefore > 0) match['before'] = new ArrayList<String>(before)
+                if (contextAfter > 0) {
+                    match['after'] = new ArrayList<String>()
+                    lastMatch = match
+                    afterRemaining = contextAfter
+                }
+                matches.add(match)
+            } else if (afterRemaining > 0 && lastMatch != null) {
+                (lastMatch['after'] as List<String>).add(trimLogLine(line, maxLineChars))
+                afterRemaining--
+            }
+            if (contextBefore > 0) {
+                if (before.size() >= contextBefore) before.removeFirst()
+                before.addLast(trimLogLine(line, maxLineChars))
+            }
+        }
+        return false
+    } finally {
+        reader.close()
+    }
+}
 
 Map<String, Object> resolveScreenInfo(FieldScreenScheme scheme, IssueOperation issueOp) {
     FieldScreenSchemeItem schemeItem = scheme.getFieldScreenSchemeItem(issueOp)

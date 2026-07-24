@@ -1,7 +1,7 @@
 # Jira Data Center 10 MCP Server (TypeScript)
 
 A **read-only** Model Context Protocol (MCP) server for deep introspection of
-**Jira Data Center 10** — 73 tools covering projects, workflows, schemes,
+**Jira Data Center 10** — 76 tools covering projects, workflows, schemes,
 fields, automation, Assets (Insight), and more.
 
 > **Read-only** — this server cannot modify any Jira configuration.
@@ -25,7 +25,7 @@ See `.mcp.json.example` for an example configuration file.
 
 ## Self-test
 
-`npm run selftest` exercises all 73 tools against the live Jira instance and
+`npm run selftest` exercises all 76 tools against the live Jira instance and
 prints a coverage report — one line per tool variant, then a summary. It
 auto-discovers the IDs/keys parameterised tools need (project keys, scheme IDs,
 workflow names, ...) from the `list_*`/`dump_*` tools, so no manual setup is
@@ -33,7 +33,7 @@ needed. Credentials are read from the environment, falling back to the
 `jira-dc` server's `env` block in `.mcp.json`.
 
 ```bash
-npm run selftest                          # all 73 tools
+npm run selftest                          # all 76 tools
 npm run selftest -- --only get_workflow_detail   # one tool (deps auto-included)
 npm run selftest -- --skip find_field_usage      # exclude slow tools
 ```
@@ -44,7 +44,7 @@ full machine-readable report at `selftest-output/_report.json`. Flags:
 
 ## Tools
 
-All 73 tools are read-only against Jira (one, `dump_script_registry`, also writes
+All 76 tools are read-only against Jira (one, `dump_script_registry`, also writes
 its export bundle to a local directory). Tools marked † require the companion ScriptRunner
 Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
@@ -163,6 +163,12 @@ The PAT user needs read access to the relevant Assets object schemas.
 - `list_application_links` † — links to Confluence, Bitbucket, Bamboo, etc.
 - `get_effective_permissions` † — effective project permissions via groups, roles, grants
 - `dump_plugin_inventory` — installed apps with version, enabled state, and license (user-installed by default)
+
+**Server logs** († ScriptRunner-backed, jira-administrators only)
+
+- `list_server_log_files` † — log files in the Jira and Tomcat log directories with size and mtime
+- `tail_server_log` † — last N lines of a log file (default `atlassian-jira.log`)
+- `grep_server_log` † — regex search over a log file and its rotations, with before/after context; matches return in chronological order
 
 **Dump**
 

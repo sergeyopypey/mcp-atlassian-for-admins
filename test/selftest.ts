@@ -525,6 +525,18 @@ function buildTestPlan(): ToolCase[] {
   };
   discSearchIql.needs = ["object_type_names", "schema_ids"];
 
+  const discTailServerLog: DiscoverFn = () => [
+    V("default file", { lines: 20 }),
+  ];
+
+  const discGrepServerLog: DiscoverFn = () => [
+    V("basic", { pattern: "ERROR", max_matches: 5 }, "greplog:basic"),
+    V("context+rotations",
+      { pattern: "error", rotations: 1, context_before: 1, context_after: 1,
+        case_insensitive: true, max_matches: 5 },
+      "greplog:context"),
+  ];
+
   const discEffectivePerms: DiscoverFn = (h) => {
     const pk = (h.project_keys ?? [])[0];
     if (!pk) return null;
@@ -569,6 +581,10 @@ function buildTestPlan(): ToolCase[] {
     toolCase("list_listeners", 1, noArgs),
     toolCase("list_scheduled_services", 1, noArgs),
     toolCase("list_application_links", 1, noArgs),
+    toolCase("list_server_log_files", 1, noArgs),
+    toolCase("tail_server_log", 1, discTailServerLog),
+    toolCase("grep_server_log", 1, discGrepServerLog,
+      { branches: ["greplog:basic", "greplog:context"] }),
     toolCase("list_filters", 1, noArgs),
     toolCase("list_dashboards", 1, noArgs),
     toolCase("list_project_categories", 1, noArgs),
