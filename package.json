@@ -1,7 +1,30 @@
 {
   "name": "mcp-atlassian-for-admins",
   "version": "0.1.0",
-  "description": "Read-only MCP server for Jira Data Center 10 introspection (TypeScript)",
+  "description": "Read-only MCP server for deep Jira Data Center 10 introspection — 76 tools for admins",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sergeyopypey/mcp-atlassian-for-admins.git"
+  },
+  "homepage": "https://github.com/sergeyopypey/mcp-atlassian-for-admins#readme",
+  "bugs": "https://github.com/sergeyopypey/mcp-atlassian-for-admins/issues",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "jira",
+    "jira-data-center",
+    "atlassian",
+    "scriptrunner",
+    "jira-admin",
+    "assets",
+    "insight"
+  ],
+  "contributors": [
+    "sergeyopypey",
+    "Ivnrv",
+    "peppingdore"
+  ],
   "type": "module",
   "engines": {
     "node": ">=20"
