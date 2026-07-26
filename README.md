@@ -1,10 +1,40 @@
 # Jira Data Center 10 MCP Server (TypeScript)
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Node.js >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+![MCP](https://img.shields.io/badge/Model_Context_Protocol-server-purple)
+
 A **read-only** Model Context Protocol (MCP) server for deep introspection of
 **Jira Data Center 10** — 76 tools covering projects, workflows, schemes,
 fields, automation, Assets (Insight), and more.
 
 > **Read-only** — this server cannot modify any Jira configuration.
+
+## Why
+
+Jira DC administration is config archaeology: the answer to "why did this
+happen?" hides somewhere in a chain of workflow → post-functions → automation
+rules → permission/field/screen schemes, and the admin UI shows that chain one
+screen at a time. This server hands the whole picture to an AI assistant in a
+single conversation — it can trace a project's full scheme chain, explain why
+an automation rule fired (or didn't), find every screen a custom field sits
+on, resolve who effectively holds a permission, or grep the server log,
+without SSH access and without any ability to change anything.
+
+Most data comes from Jira's native REST API. The parts Jira only exposes
+through its Java API — listeners, scheduled services, effective permissions,
+transition rule internals, server logs — are unlocked by a companion set of
+ScriptRunner REST endpoints (a single GET-only Groovy file, see
+[`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
+
+## Example prompts
+
+- *"Why didn't the automation rule «Notify on escalation» fire for PROJ-123 yesterday?"*
+- *"Compare the workflows of projects A and B and list every difference in transitions and post-functions."*
+- *"Which screens, projects and issue types still use the custom field «Severity»? Can I delete it?"*
+- *"Who effectively has «Delete Issues» permission in PROJ, and through which groups or roles?"*
+- *"Grep atlassian-jira.log for indexing errors around 14:00 and summarize the stack traces."*
 
 ## Prerequisites
 
@@ -176,3 +206,7 @@ The PAT user needs read access to the relevant Assets object schemas.
 - `dump_workflows` — all workflows with statuses, transitions, and rules
 - `dump_automation_rules` — all A4J rules from the cache
 - `dump_script_registry` — full ScriptRunner inventory (listeners, REST endpoints, jobs, behaviours, fragments, script fields, resources, workflow functions, script-root `.groovy` files, instance metadata, `Output.csv`) reproducing ScriptRunner's "Export all scripts" bundle. **Writes the bundle to a local directory** (`output_dir`); reads from Jira are read-only.
+
+## License
+
+[MIT](LICENSE) © sergeyopypey, Ivnrv, peppingdore
