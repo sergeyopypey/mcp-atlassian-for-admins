@@ -30,10 +30,10 @@ ScriptRunner REST endpoints (a single GET-only Groovy file, see
 
 ## Example prompts
 
-- *"Why didn't the automation rule «Notify on escalation» fire for PROJ-123 yesterday?"*
+- *"Why didn't the automation rule 'Notify on escalation' fire for PROJ-123 yesterday?"*
 - *"Compare the workflows of projects A and B and list every difference in transitions and post-functions."*
-- *"Which screens, projects and issue types still use the custom field «Severity»? Can I delete it?"*
-- *"Who effectively has «Delete Issues» permission in PROJ, and through which groups or roles?"*
+- *"Which screens, projects and issue types still use the custom field 'Severity'? Can I delete it?"*
+- *"Who effectively has 'Delete Issues' permission in PROJ, and through which groups or roles?"*
 - *"Grep atlassian-jira.log for indexing errors around 14:00 and summarize the stack traces."*
 
 ## Prerequisites
