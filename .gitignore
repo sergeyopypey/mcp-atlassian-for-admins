@@ -22,6 +22,9 @@ script_registry_dump.json
 .DS_Store
 npm-debug.log*
 
+# Windows / Google Drive metadata
+desktop.ini
+
 # Generated artifacts / dumps
 custom_fields.xlsx
 custom_fields_table.md
