@@ -470,15 +470,6 @@ export class JiraClient {
     return schemes.length > 0 ? schemes[0] : null;
   }
 
-  async getIssueTypeScreenSchemeItems(schemeIds?: number[]): Promise<Json[]> {
-    let schemes = await this.listIssueTypeScreenSchemes();
-    if (schemeIds && schemeIds.length > 0) {
-      const wanted = new Set(schemeIds.map((s) => Number(s)));
-      schemes = schemes.filter((s) => wanted.has(s.id));
-    }
-    return schemes.flatMap((s) => s.mappings ?? []);
-  }
-
   // -- screen schemes (ScriptRunner) --------------------------------------
 
   async listScreenSchemes(): Promise<Json[]> {
@@ -733,16 +724,13 @@ export class JiraClient {
     }
   }
 
-  async getIssueTypeSchemeProjectAssociations(): Promise<Json[]> {
-    return this.getPaged("/rest/api/2/issuetypescheme/project", "values");
-  }
-
-  async getIssueTypeScreenSchemeProjectAssociations(): Promise<Json[]> {
-    return this.getPaged("/rest/api/2/issuetypescreenscheme/project", "values");
-  }
-
-  async getFieldConfigSchemeProjectAssociations(): Promise<Json[]> {
-    return this.getPaged("/rest/api/2/fieldconfigurationscheme/project", "values");
+  /**
+   * Projects explicitly associated with an issue type scheme. Projects on the
+   * global default scheme are not listed. (The Cloud-style bulk
+   * `/issuetypescheme/project` endpoint does not exist on DC.)
+   */
+  async getIssueTypeSchemeAssociations(schemeId: number | string): Promise<Json[]> {
+    return this.get(`/rest/api/2/issuetypescheme/${schemeId}/associations`);
   }
 
   // ======================================================================
