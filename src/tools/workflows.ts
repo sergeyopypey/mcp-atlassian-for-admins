@@ -8,7 +8,7 @@ import { has } from "./util.js";
 
 // Patterns that indicate a workflow is a backup or copy (case-insensitive).
 const INACTIVE_PATTERNS =
-  /(?:^copy of |[\s(]\bcopy\b[\s)]|[\s(]\bcopy\s*\d*\b[\s)]|\bbackup\b|\bBACKUP\b|\bold\b[\s)_-]|\bdeprecated\b|\barchived?\b|\bdraft\b|\btest\b|\btemp\b|\bDO NOT USE\b|\bdo not use\b|\bv\d+\s*[-–]\s*old\b)/i;
+  /(?:^copy (?:\d+ )?of |[\s(]\bcopy\b[\s)]|[\s(]\bcopy\s*\d*\b[\s)]|\bbackup\b|\bBACKUP\b|\bold\b[\s)_-]|\bdeprecated\b|\barchived?\b|\bdraft\b|\btest\b|\btemp\b|\bDO NOT USE\b|\bdo not use\b|\bv\d+\s*[-–]\s*old\b)/i;
 
 function buildWorkflowEntry(wf: any): Record<string, unknown> {
   const name =
@@ -22,9 +22,9 @@ function buildWorkflowEntry(wf: any): Record<string, unknown> {
       : has(wf, "default")
         ? wf.default
         : false,
-    steps: wf.steps,
-    statusCount: (wf.statuses ?? []).length,
-    transitionCount: (wf.transitions ?? []).length,
+    // /rest/api/2/workflow reports only the step (status) count; transition
+    // counts need the full descriptor — see dump_workflows / get_workflow_detail.
+    statusCount: typeof wf.steps === "number" ? wf.steps : null,
   };
 }
 
@@ -42,7 +42,7 @@ export const workflowTools: ToolDef[] = [
     name: "list_active_workflows",
     description:
       "List active workflows (excludes backups, copies, deprecated). " +
-      "Shows name, status/transition counts, and whether each workflow is in use by a scheme. " +
+      "Shows name, status count, and whether each workflow is in use by a scheme. " +
       "Use this by default; use list_all_workflows only when you need the full unfiltered list.",
     inputShape: {},
     async handler({ client }) {
