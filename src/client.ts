@@ -606,7 +606,8 @@ export class JiraClient {
 
   async getNotificationScheme(schemeId: number): Promise<Json> {
     return this.get(`/rest/api/2/notificationscheme/${schemeId}`, {
-      expand: "notificationSchemeEvents",
+      // `all` also expands group/projectRole/user/field details per notification.
+      expand: "all",
     });
   }
 
