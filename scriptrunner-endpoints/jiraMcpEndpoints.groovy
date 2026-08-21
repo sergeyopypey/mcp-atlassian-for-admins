@@ -786,21 +786,12 @@ jiraMcpEffectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
             .build()
     }
 
-    // Known project permission keys
-    List<String> allPermissions = [
-        "BROWSE_PROJECTS", "CREATE_ISSUES", "EDIT_ISSUES", "ASSIGN_ISSUES",
-        "RESOLVE_ISSUES", "CLOSE_ISSUES", "MODIFY_REPORTER", "DELETE_ISSUES",
-        "LINK_ISSUES", "SET_ISSUE_SECURITY", "SCHEDULE_ISSUES",
-        "MOVE_ISSUES", "ASSIGNABLE_USER", "MANAGE_WATCHERS",
-        "ADD_COMMENTS", "EDIT_ALL_COMMENTS", "EDIT_OWN_COMMENTS",
-        "DELETE_ALL_COMMENTS", "DELETE_OWN_COMMENTS",
-        "CREATE_ATTACHMENTS", "DELETE_ALL_ATTACHMENTS", "DELETE_OWN_ATTACHMENTS",
-        "WORK_ON_ISSUES", "EDIT_OWN_WORKLOGS", "EDIT_ALL_WORKLOGS",
-        "DELETE_OWN_WORKLOGS", "DELETE_ALL_WORKLOGS",
-        "ADMINISTER_PROJECTS", "TRANSITION_ISSUES",
-        "VIEW_WORKFLOW_READONLY", "VIEW_VOTERS_AND_WATCHERS",
-        "MANAGE_SPRINTS_PERMISSION"
-    ]
+    // Every project permission registered on this instance (system + plugin,
+    // e.g. MANAGE_SPRINTS_PERMISSION, VIEW_DEV_TOOLS) — a hardcoded list drifts
+    // between Jira versions and mistyped keys silently land in "denied".
+    List<String> allPermissions = permissionManager.allProjectPermissions
+        .collect { it.key }
+        .sort()
 
     Map<String, Object> result = [project: projectKey] as Map<String, Object>
 
@@ -817,15 +808,10 @@ jiraMcpEffectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
         List<String> denied = []
 
         allPermissions.each { String perm ->
-            try {
-                ProjectPermissionKey permKey = new ProjectPermissionKey(perm)
-                if (permissionManager.hasPermission(permKey, project, user)) {
-                    granted.add(perm)
-                } else {
-                    denied.add(perm)
-                }
-            } catch (Exception ignored) {
-                // Permission key may not exist in this version
+            if (permissionManager.hasPermission(new ProjectPermissionKey(perm), project, user)) {
+                granted.add(perm)
+            } else {
+                denied.add(perm)
             }
         }
 
