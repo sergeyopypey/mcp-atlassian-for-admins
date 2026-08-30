@@ -23,8 +23,8 @@ Custom REST endpoints for Jira Data Center that expose Java API data unavailable
 | `/jiraMcpScheduledServices` | Jira scheduled services (mail handlers, etc.) |
 | `/jiraMcpApplicationLinks` | Application links to Confluence, Bitbucket, etc. |
 | `/jiraMcpEffectivePermissions` | Resolved effective permissions for user+project |
-| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow_detail`) |
-| `/jiraMcpServerLog` | List/tail/grep server log files; restricted to the Jira/Tomcat log directories and `jira-administrators` |
+| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow_detail`, `dump_workflows`); requires the Jira Administrators global permission |
+| `/jiraMcpServerLog` | List/tail/grep server log files; restricted to the Jira/Tomcat log directories; requires the System Administrators global permission |
 
 All endpoints are wired into working MCP tools (see the project README).
 A tool surfaces a clear error if its endpoint is missing or failing — failures
@@ -33,6 +33,8 @@ are not silently degraded.
 ## Authentication
 
 These endpoints inherit ScriptRunner's authentication. Callers must authenticate with Jira credentials (Basic auth or PAT) that have admin privileges.
+
+The two sensitive endpoints check a global permission in code rather than a group name, since the admin group is named differently across instances: `/jiraMcpExportWorkflow` needs Jira Administrators, `/jiraMcpServerLog` needs System Administrators.
 
 ## Notes
 

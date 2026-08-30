@@ -4,8 +4,8 @@ export class HttpStatusError extends Error {
   readonly body: string;
   readonly url: string;
 
-  constructor(status: number, body: string, url: string) {
-    super(`HTTP ${status} for ${url}`);
+  constructor(status: number, body: string, url: string, message?: string) {
+    super(message ?? `HTTP ${status} for ${url}`);
     this.name = "HttpStatusError";
     this.status = status;
     this.body = body;

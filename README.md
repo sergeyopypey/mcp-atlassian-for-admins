@@ -53,6 +53,16 @@ npm run build
 
 See `.mcp.json.example` for an example configuration file.
 
+### Response size
+
+MCP clients cap the size of a single tool result (Claude Code drops results over
+~25k tokens), and a large Jira has thousands of fields, rules, and workflows. So
+tool output is compact JSON, and instance-wide listings are paginated: they take
+`offset`/`limit` plus filters such as `name_contains` or `project_key`, and
+return `{ total, offset, returned, nextOffset, items }`. A result that still
+exceeds `JIRA_MCP_MAX_RESPONSE_CHARS` (default `60000`; `0` disables the check)
+is replaced by an error that tells the model how to narrow the call.
+
 ## Self-test
 
 `npm run selftest` exercises all 76 tools against the live Jira instance and
@@ -101,16 +111,16 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 - `list_screens` — all screens with IDs and names
 - `get_screen_tabs_and_fields` — a screen's tabs and ordered fields
-- `list_screen_schemes` — all screen schemes with operation mappings
+- `list_screen_schemes` — screen schemes with operation mappings; paginated
 - `get_screen_scheme` — one screen scheme with screens and tabs
-- `list_issue_type_screen_schemes` † — issue-type-to-screen-scheme mappings and projects
+- `list_issue_type_screen_schemes` † — issue-type-to-screen-scheme mappings and projects; paginated, filter by project
 - `get_issue_type_screen_scheme` — one issue type screen scheme
 
 **Fields**
 
-- `list_fields` — all system and custom fields with types
-- `list_custom_fields_usage` — custom fields with usage stats (issues, projects, screens)
-- `get_field_configuration` — field config items: required, hidden, renderer
+- `list_fields` — system and custom fields with types; paginated, filter by name
+- `list_custom_fields_usage` — custom fields with usage stats (issues, projects, screens); paginated
+- `get_field_configuration` — field config items: required, hidden, renderer; paginated, filter by field or required/hidden
 - `get_field_configuration_scheme` — maps issue types to field configurations
 - `find_field_usage` — where a field appears across all screens
 - `get_createmeta_fields` — fields on the create screen for a project + issue type
@@ -128,7 +138,7 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 **Automation**
 
-- `list_automation_rules` — Automation for Jira (A4J) rules from the cache
+- `list_automation_rules` — Automation for Jira (A4J) rules from the cache; paginated, filter by project or name
 - `get_automation_rule_detail` — full rule: trigger, conditions, actions, smart values
 - `get_automation_audit_log` — recent executions across all rules
 - `get_automation_rule_audit_log` — execution history for one rule
@@ -159,7 +169,7 @@ The PAT user needs read access to the relevant Assets object schemas.
 - `get_object_type_attributes` — attribute definitions for an object type (type, references, cardinality, required)
 - `get_schema_attributes` — all attribute definitions across a schema
 - `list_object_statuses` — Assets status types and categories (global or schema-scoped)
-- `search_objects_iql` — search objects with IQL (Insight Query Language); paginated
+- `search_objects_iql` — search objects with IQL (Insight Query Language); first 25 matches by default, plus the total count
 - `get_object` — one object by ID with its attribute values
 - `get_object_connected_tickets` — Jira issues connected to an object
 - `dump_assets_schema` — full structural snapshot: schema, statuses, and all object types with attributes
@@ -167,7 +177,7 @@ The PAT user needs read access to the relevant Assets object schemas.
 **Filters & Dashboards**
 
 - `list_filters` — favourite/shared JQL filters
-- `list_dashboards` — all dashboards with owner and popularity
+- `list_dashboards` — dashboards with view URL; paginated, filter by name
 
 **Analysis**
 
@@ -194,17 +204,17 @@ The PAT user needs read access to the relevant Assets object schemas.
 - `get_effective_permissions` † — effective project permissions via groups, roles, grants
 - `dump_plugin_inventory` — installed apps with version, enabled state, and license (user-installed by default)
 
-**Server logs** († ScriptRunner-backed, jira-administrators only)
+**Server logs** († ScriptRunner-backed, System Administrators only)
 
-- `list_server_log_files` † — log files in the Jira and Tomcat log directories with size and mtime
+- `list_server_log_files` † — log files in the Jira and Tomcat log directories with size and mtime; paginated, filter by name
 - `tail_server_log` † — last N lines of a log file (default `atlassian-jira.log`)
 - `grep_server_log` † — regex search over a log file and its rotations, with before/after context; matches return in chronological order
 
 **Dump**
 
-- `dump_global_config` — all fields, issue types, statuses, resolutions, priorities, link types
-- `dump_workflows` — all workflows with statuses, transitions, and rules
-- `dump_automation_rules` — all A4J rules from the cache
+- `dump_global_config` — issue types, statuses, resolutions, priorities, link types, field counts
+- `dump_workflows` — workflows with statuses and transitions (rules with `detail`); paginated
+- `dump_automation_rules` — full A4J rules from the cache; paginated, filter by project or name
 - `dump_script_registry` — full ScriptRunner inventory (listeners, REST endpoints, jobs, behaviours, fragments, script fields, resources, workflow functions, script-root `.groovy` files, instance metadata, `Output.csv`) reproducing ScriptRunner's "Export all scripts" bundle. **Writes the bundle to a local directory** (`output_dir`); reads from Jira are read-only.
 
 ## License

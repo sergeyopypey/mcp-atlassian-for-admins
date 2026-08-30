@@ -4,6 +4,11 @@ import { z } from "zod";
 import { boundedAll } from "../client.js";
 import { dumps } from "../json.js";
 import type { ToolDef } from "./types.js";
+import { filterByName, nameFilterShape, pageShape, paginate } from "./util.js";
+
+const FIELD_PAGE = 150;
+const FC_ITEM_PAGE = 150;
+const CF_USAGE_PAGE = 100;
 
 /**
  * Format an epoch-milliseconds timestamp the way Python's
@@ -27,9 +32,12 @@ export const fieldTools: ToolDef[] = [
     description:
       "List all fields (system + custom) with types, search clause names. " +
       "Set custom_only=true to see only custom fields. " +
-      "Pass field_ids to look up specific fields by ID.",
+      "Pass field_ids to look up specific fields by ID. " +
+      "Paginated (offset/limit) and filterable by name_contains.",
     inputShape: {
       custom_only: z.boolean().default(false).describe("Only show custom fields"),
+      ...nameFilterShape,
+      ...pageShape(FIELD_PAGE),
       field_ids: z
         .array(z.string())
         .optional()
@@ -46,16 +54,21 @@ export const fieldTools: ToolDef[] = [
       } else if (args.custom_only) {
         fields = fields.filter((f: any) => f.custom ?? false);
       }
+      fields = filterByName(fields, args.name_contains);
       return dumps(
-        fields.map((f: any) => ({
-          id: f.id,
-          name: f.name,
-          custom: f.custom ?? false,
-          type: f.schema ? (f.schema.type ?? null) : null,
-          customType: f.schema ? (f.schema.custom ?? null) : null,
-          searchable: f.searchable,
-          clauseNames: f.clauseNames ?? [],
-        })),
+        paginate(
+          fields.map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            custom: f.custom ?? false,
+            type: f.schema ? (f.schema.type ?? null) : null,
+            customType: f.schema ? (f.schema.custom ?? null) : null,
+            searchable: f.searchable,
+            clauseNames: f.clauseNames ?? [],
+          })),
+          args,
+          FIELD_PAGE,
+        ),
       );
     },
   },
@@ -67,7 +80,9 @@ export const fieldTools: ToolDef[] = [
       "issuesWithValue (issue count), projectsCount/keys, screensCount, lastValueUpdate. " +
       "Filters: search (substring on name), unused_only (issuesWithValue=0), " +
       "project_key (limits to fields scoped to that project), min_issues (>= N issues). " +
-      "Sorted by issue count desc. Useful for auditing dead custom fields.",
+      "Sorted by issue count desc. Paginated (offset/limit); totalCustomFields is the " +
+      "instance-wide count, total the number matching the filters. " +
+      "Useful for auditing dead custom fields.",
     inputShape: {
       search: z.string().optional().describe("Case-insensitive substring filter on field name"),
       unused_only: z
@@ -85,6 +100,7 @@ export const fieldTools: ToolDef[] = [
         .int()
         .optional()
         .describe("Only fields with issuesWithValue >= this"),
+      ...pageShape(CF_USAGE_PAGE),
     },
     async handler({ client }, args) {
       const raw = await client.listCustomFieldsUsage();
@@ -142,7 +158,15 @@ export const fieldTools: ToolDef[] = [
 
       result.sort((a, b) => (b.issuesWithValue || 0) - (a.issuesWithValue || 0));
 
-      return dumps({ total: raw.total, returned: result.length, fields: result });
+      const page = paginate(result, args, CF_USAGE_PAGE);
+      return dumps({
+        totalCustomFields: raw.total,
+        total: page.total,
+        offset: page.offset,
+        returned: page.returned,
+        nextOffset: page.nextOffset,
+        fields: page.items,
+      });
     },
   },
 
@@ -150,27 +174,61 @@ export const fieldTools: ToolDef[] = [
     name: "get_field_configuration",
     description:
       "Get field configuration items — shows which fields are required, hidden, " +
-      "their renderer and description. The 'rules' for fields.",
-    inputShape: { fc_id: z.coerce.number().int().describe("Field configuration ID") },
+      "their renderer and description. The 'rules' for fields. " +
+      "Field items are paginated (offset/limit; total/nextOffset at the top level) and " +
+      "filterable by field_ids, name_contains, or required_or_hidden_only.",
+    inputShape: {
+      fc_id: z.coerce.number().int().describe("Field configuration ID"),
+      field_ids: z
+        .array(z.string())
+        .optional()
+        .describe("Only these field IDs (e.g. ['customfield_10001', 'summary'])"),
+      name_contains: z
+        .string()
+        .optional()
+        .describe("Only fields whose name contains this text (case-insensitive)"),
+      required_or_hidden_only: z
+        .boolean()
+        .default(false)
+        .describe("Only fields that are required or hidden in this configuration"),
+      ...pageShape(FC_ITEM_PAGE),
+    },
     async handler({ client }, args) {
       const fcList = await client.listFieldConfigurations();
       const fc = fcList.find((c: any) => c.id === args.fc_id);
       if (fc === undefined) {
         return dumps({ error: `Field configuration ${args.fc_id} not found` });
       }
+      let items: any[] = (fc.fields ?? []).map((item: any) => ({
+        fieldId: item.fieldId,
+        fieldName: item.fieldName,
+        description: item.description ?? "",
+        isRequired: item.isRequired ?? false,
+        isHidden: item.isHidden ?? false,
+        renderer: item.rendererType,
+      }));
+      if (args.field_ids?.length) {
+        const idSet = new Set<string>(args.field_ids);
+        items = items.filter((it) => idSet.has(it.fieldId));
+      }
+      if (args.name_contains) {
+        const n = String(args.name_contains).toLowerCase();
+        items = items.filter((it) => String(it.fieldName ?? "").toLowerCase().includes(n));
+      }
+      if (args.required_or_hidden_only) {
+        items = items.filter((it) => it.isRequired || it.isHidden);
+      }
+      const page = paginate(items, args, FC_ITEM_PAGE);
       return dumps({
         fieldConfigurationId: fc.id,
         name: fc.name,
         description: fc.description ?? "",
         isDefault: fc.isDefault ?? false,
-        fields: (fc.fields ?? []).map((item: any) => ({
-          fieldId: item.fieldId,
-          fieldName: item.fieldName,
-          description: item.description ?? "",
-          isRequired: item.isRequired ?? false,
-          isHidden: item.isHidden ?? false,
-          renderer: item.rendererType,
-        })),
+        total: page.total,
+        offset: page.offset,
+        returned: page.returned,
+        nextOffset: page.nextOffset,
+        fields: page.items,
       });
     },
   },

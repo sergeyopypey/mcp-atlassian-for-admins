@@ -17,8 +17,8 @@
  *   jiraMcpScheduledServices            - Jira scheduled services (mail handlers, etc.)
  *   jiraMcpApplicationLinks             - application links to Confluence, Bitbucket, etc.
  *   jiraMcpEffectivePermissions         - resolved effective permissions for user+project
- *   jiraMcpExportWorkflow               - workflow OpenSymphony XML descriptor
- *   jiraMcpServerLog                    - list/tail/grep server log files (jira-administrators only)
+ *   jiraMcpExportWorkflow               - workflow OpenSymphony XML descriptor (Jira Administrators only)
+ *   jiraMcpServerLog                    - list/tail/grep server log files (System Administrators only)
  *
  * All endpoints are read-only (GET) and return JSON unless noted otherwise.
  */
@@ -66,6 +66,7 @@ import com.atlassian.jira.event.ListenerManager
 import com.atlassian.jira.service.JiraServiceContainer
 import com.atlassian.jira.service.ServiceManager
 
+import com.atlassian.jira.permission.GlobalPermissionKey
 import com.atlassian.jira.security.PermissionManager
 import com.atlassian.jira.security.plugin.ProjectPermissionKey
 import com.atlassian.jira.user.ApplicationUser
@@ -859,9 +860,14 @@ jiraMcpEffectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
  * Query params:
  *   workflowName (required) - exact workflow name
  *
+ * Requires the Jira Administrators global permission.
+ *
  * Response: the workflow descriptor as application/xml
  */
-jiraMcpExportWorkflow(httpMethod: "GET", groups: ["jira-administrators"]) { MultivaluedMap queryParams, String body ->
+jiraMcpExportWorkflow(httpMethod: "GET") { MultivaluedMap queryParams, String body ->
+    Response denied = requireGlobalPermission(GlobalPermissionKey.ADMINISTER)
+    if (denied != null) return denied
+
     final String workflowName = queryParams.getFirst("workflowName")
     final WorkflowManager workflowManager = ComponentAccessor.getWorkflowManager()
     final JiraWorkflow jiraWorkflow = workflowManager.getWorkflow(workflowName)
@@ -878,7 +884,7 @@ jiraMcpExportWorkflow(httpMethod: "GET", groups: ["jira-administrators"]) { Mult
  * SSH-and-grep loop during incident investigations. Access is restricted to
  * plain files directly inside the Jira log directory (<jira.home>/log) and the
  * Tomcat log directory (<catalina.base>/logs) — no paths, no traversal.
- * Members of jira-administrators only.
+ * Requires the System Administrators global permission.
  *
  * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpServerLog
  * Query params:
@@ -897,7 +903,10 @@ jiraMcpExportWorkflow(httpMethod: "GET", groups: ["jira-administrators"]) { Mult
  *
  * Response (grep): { "pattern", "filesScanned", "matchCount", "truncated", "matches": [...] }
  */
-jiraMcpServerLog(httpMethod: "GET", groups: ["jira-administrators"]) { MultivaluedMap queryParams ->
+jiraMcpServerLog(httpMethod: "GET") { MultivaluedMap queryParams ->
+    Response denied = requireGlobalPermission(GlobalPermissionKey.SYSTEM_ADMIN)
+    if (denied != null) return denied
+
     String action = (queryParams.getFirst("action") as String) ?: "grep"
 
     List<File> logDirs = serverLogDirs()
@@ -1039,6 +1048,23 @@ jiraMcpServerLog(httpMethod: "GET", groups: ["jira-administrators"]) { Multivalu
 // ---------------------------------------------------------------------------
 // Helper methods (shared by the endpoint closures above)
 // ---------------------------------------------------------------------------
+
+/**
+ * A 403 response unless the calling user holds the global permission, else null.
+ * Checked in code rather than with the endpoint's `groups:` option because the
+ * admin group is named differently across instances (jira-administrators,
+ * jira-admin, ...), while the global permission is the same everywhere.
+ */
+Response requireGlobalPermission(GlobalPermissionKey permission) {
+    ApplicationUser user = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (user != null && ComponentAccessor.globalPermissionManager.hasPermission(permission, user)) {
+        return null
+    }
+    return Response.status(403)
+        .entity(new JsonBuilder([error: "Requires the ${permission.key} global permission".toString()]).toString())
+        .header("Content-Type", "application/json")
+        .build()
+}
 
 /** Directories log files may be served from (canonical, existing only). */
 List<File> serverLogDirs() {

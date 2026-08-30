@@ -177,8 +177,13 @@ const isPlainObject = (v: any): boolean =>
 
 const isError = (parsed: any): boolean => isPlainObject(parsed) && "error" in parsed;
 
+/** A paginated listing's `{ total, items }` envelope (see `paginate`). */
+const isPage = (parsed: any): boolean =>
+  isPlainObject(parsed) && Array.isArray(parsed.items) && typeof parsed.total === "number";
+
 const isEmpty = (parsed: any): boolean =>
   (Array.isArray(parsed) && parsed.length === 0) ||
+  (isPage(parsed) && parsed.total === 0) ||
   (isPlainObject(parsed) && Object.keys(parsed).length === 0);
 
 class TimeoutError extends Error {}
@@ -266,7 +271,7 @@ function add(harvest: Harvest, key: string, values: any[]): void {
 
 /** Extract reusable IDs/keys from a tool's (non-error) result into `harvest`. */
 function harvest(h: Harvest, tool: string, parsed: any): void {
-  const arr: any[] = Array.isArray(parsed) ? parsed : [];
+  const arr: any[] = Array.isArray(parsed) ? parsed : isPage(parsed) ? parsed.items : [];
   const objs = arr.filter(isPlainObject);
   switch (tool) {
     case "list_projects":
@@ -387,6 +392,13 @@ function buildTestPlan(): ToolCase[] {
     V("default", {}, "list_fields:default"),
     V("custom_only", { custom_only: true }, "list_fields:custom_only"),
     V("field_ids", { field_ids: ["summary"] }, "list_fields:field_ids"),
+    V("name_contains", { name_contains: "sum" }, "list_fields:name_contains"),
+    V("second page", { offset: 5, limit: 5 }, "list_fields:page"),
+  ];
+
+  const discDumpWorkflows: DiscoverFn = () => [
+    V("summary", {}, "dump_workflows:summary"),
+    V("detail", { detail: true, limit: 1 }, "dump_workflows:detail"),
   ];
 
   const discCustomFieldsUsage: DiscoverFn = (h) => {
@@ -557,7 +569,8 @@ function buildTestPlan(): ToolCase[] {
   const plan: ToolCase[] = [
     // ---- Phase 1: zero-arg discovery -----------------------------------
     toolCase("dump_global_config", 1, noArgs),
-    toolCase("dump_workflows", 1, noArgs),
+    toolCase("dump_workflows", 1, discDumpWorkflows,
+      { branches: ["dump_workflows:summary", "dump_workflows:detail"] }),
     toolCase("dump_automation_rules", 1, noArgs),
     toolCase("list_projects", 1, noArgs),
     toolCase("list_active_workflows", 1, noArgs),
@@ -589,7 +602,8 @@ function buildTestPlan(): ToolCase[] {
     toolCase("list_dashboards", 1, noArgs),
     toolCase("list_project_categories", 1, noArgs),
     toolCase("list_fields", 1, discListFields,
-      { branches: ["list_fields:default", "list_fields:custom_only", "list_fields:field_ids"] }),
+      { branches: ["list_fields:default", "list_fields:custom_only", "list_fields:field_ids",
+        "list_fields:name_contains", "list_fields:page"] }),
     toolCase("list_custom_fields_usage", 1, discCustomFieldsUsage,
       { branches: ["cfu:none", "cfu:search", "cfu:unused_only", "cfu:project"] }),
 

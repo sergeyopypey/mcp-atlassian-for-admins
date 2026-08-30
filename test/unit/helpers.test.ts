@@ -7,6 +7,7 @@ import { boundedAll, collectPagedEntries } from "../../src/client.js";
 import { pythonIsoUtc } from "../../src/tools/fields.js";
 import { parseWorkflowXml } from "../../src/lib/workflowXml.js";
 import { dumps } from "../../src/json.js";
+import { filterByName, paginate } from "../../src/tools/util.js";
 
 test("boundedAll preserves input order and caps concurrency", async () => {
   let inFlight = 0;
@@ -73,8 +74,27 @@ test("pythonIsoUtc formats like datetime.isoformat()", () => {
   );
 });
 
-test("dumps omits undefined keys (JS behaviour)", () => {
-  assert.equal(dumps({ a: undefined, b: 1 }), '{\n  "b": 1\n}');
+test("dumps is compact and omits undefined keys (JS behaviour)", () => {
+  assert.equal(dumps({ a: undefined, b: 1, c: [1, 2] }), '{"b":1,"c":[1,2]}');
+});
+
+test("paginate slices and reports the next offset", () => {
+  const items = [1, 2, 3, 4, 5];
+  assert.deepEqual(paginate(items, {}, 2), {
+    total: 5, offset: 0, returned: 2, nextOffset: 2, items: [1, 2],
+  });
+  assert.deepEqual(paginate(items, { offset: 4, limit: 10 }, 2), {
+    total: 5, offset: 4, returned: 1, nextOffset: null, items: [5],
+  });
+  assert.deepEqual(paginate(items, { offset: 9 }, 2), {
+    total: 5, offset: 9, returned: 0, nextOffset: null, items: [],
+  });
+});
+
+test("filterByName matches a case-insensitive substring", () => {
+  const items = [{ name: "Bug Workflow" }, { name: "Task" }, {}];
+  assert.deepEqual(filterByName(items, "bug"), [{ name: "Bug Workflow" }]);
+  assert.equal(filterByName(items, undefined), items);
 });
 
 test("parseWorkflowXml extracts steps and transitions", () => {

@@ -1,27 +1,24 @@
 /** Bulk dump tools — aggregate entire Jira instance config into structured JSON. */
 
+import { z } from "zod";
 import { boundedAll } from "../client.js";
+import { isHttpStatusError } from "../errors.js";
 import { dumps } from "../json.js";
 import { parseWorkflowXml } from "../lib/workflowXml.js";
 import type { ToolDef } from "./types.js";
-import { safe, has } from "./util.js";
+import { safe, has, filterByName, nameFilterShape, pageShape, paginate } from "./util.js";
 
-function compactField(f: any): Record<string, unknown> {
-  return {
-    id: f.id,
-    name: f.name,
-    custom: f.custom ?? false,
-    type: f.schema ? (f.schema.type ?? null) : null,
-    customType: f.schema ? (f.schema.custom ?? null) : null,
-  };
-}
+const WORKFLOW_DUMP_PAGE = 20;
+const WORKFLOW_DUMP_DETAIL_PAGE = 1;
+const AUTOMATION_DUMP_PAGE = 10;
 
 export const dumpTools: ToolDef[] = [
   {
     name: "dump_global_config",
     description:
-      "Dump global Jira instance configuration: all fields (system + custom), " +
-      "issue types, statuses, resolutions, priorities, issue link types, server info. " +
+      "Dump global Jira instance configuration: issue types, statuses, resolutions, " +
+      "priorities, issue link types, server info, and system/custom field counts. " +
+      "Fields themselves are not listed here — use list_fields. " +
       "Use this first to understand the Jira instance's building blocks.",
     inputShape: {},
     async handler({ client }) {
@@ -61,10 +58,6 @@ export const dumpTools: ToolDef[] = [
           inward: lt.inward,
           outward: lt.outward,
         })),
-        fields: {
-          system: fields.filter((f: any) => !(f.custom ?? false)).map(compactField),
-          custom: fields.filter((f: any) => f.custom ?? false).map(compactField),
-        },
         fieldCount: {
           system: fields.filter((f: any) => !(f.custom ?? false)).length,
           custom: fields.filter((f: any) => f.custom ?? false).length,
@@ -77,26 +70,51 @@ export const dumpTools: ToolDef[] = [
   {
     name: "dump_workflows",
     description:
-      "Dump all workflows with their statuses (workflow steps) and transitions, " +
-      "including conditions, validators, and pre/post-functions with their arguments. " +
-      "Parsed from each workflow's XML descriptor via a ScriptRunner endpoint; a workflow " +
-      "whose export fails carries an `error` instead. Essential for understanding process flows.",
-    inputShape: {},
-    async handler({ client }) {
+      "Dump workflows with their statuses (workflow steps) and transitions " +
+      "(id, name, from, to). With detail=true each transition also carries its " +
+      "conditions, validators, and pre/post-functions with their arguments. " +
+      "Parsed from each workflow's XML descriptor via a ScriptRunner endpoint " +
+      "(Jira Administrators permission — without it the call fails with an explanation); " +
+      "a workflow whose XML export or parsing fails carries an `error` instead. " +
+      "Paginated (offset/limit; default 20, or 1 with detail=true) and filterable by " +
+      "name_contains. For one workflow, get_workflow_detail is cheaper.",
+    inputShape: {
+      ...nameFilterShape,
+      detail: z
+        .boolean()
+        .default(false)
+        .describe("Include transition conditions, validators, and pre/post-functions"),
+      ...pageShape(`${WORKFLOW_DUMP_PAGE}, or ${WORKFLOW_DUMP_DETAIL_PAGE} with detail=true`),
+    },
+    async handler({ client }, args) {
       const workflows = await safe(client.listWorkflows(), [] as any[], "workflows");
+      const named = workflows.map((wf: any) => ({ ...wf, name: wf.name ?? wf.id?.name }));
+      const page = paginate(
+        filterByName(named, args.name_contains),
+        args,
+        args.detail ? WORKFLOW_DUMP_DETAIL_PAGE : WORKFLOW_DUMP_PAGE,
+      );
 
       // /rest/api/2/workflow only carries summary fields (name, description,
       // steps count, default) — statuses and transitions come from the XML.
-      const result = await boundedAll(
-        workflows.map((wf: any) => async () => {
-          const name: string = wf.name ?? wf.id?.name;
+      const items = await boundedAll(
+        page.items.map((wf: any) => async () => {
+          const name: string = wf.name;
           const entry: Record<string, unknown> = {
             name,
             description: wf.description ?? "",
             isDefault: has(wf, "isDefault") ? wf.isDefault : (wf.default ?? false),
           };
 
-          const xmlStr = await client.exportWorkflowXml(name);
+          let xmlStr: string | null = null;
+          let exportError = "workflow XML export unavailable";
+          try {
+            xmlStr = await client.exportWorkflowXml(name);
+          } catch (e: any) {
+            // Missing permission affects every workflow — fail the whole call.
+            if (isHttpStatusError(e) && (e.status === 401 || e.status === 403)) throw e;
+            exportError = String(e?.message ?? e);
+          }
           let parsed: ReturnType<typeof parseWorkflowXml> | null = null;
           if (xmlStr) {
             try {
@@ -106,7 +124,7 @@ export const dumpTools: ToolDef[] = [
             }
           }
           if (!parsed) {
-            entry.error = "workflow XML export unavailable";
+            entry.error = exportError;
             entry.stepCount = wf.steps ?? null;
             return entry;
           }
@@ -121,26 +139,40 @@ export const dumpTools: ToolDef[] = [
             name: s.name,
             statusId: s.statusId,
           }));
-          entry.transitions = transitions;
+          entry.transitions = args.detail
+            ? transitions
+            : transitions.map((t) => ({ id: t.id, name: t.name, from: t.from, to: t.to }));
           entry.statusCount = parsed.steps.length;
           entry.transitionCount = transitions.length;
           return entry;
         }),
       );
-      return dumps(result);
+      return dumps({ ...page, items });
     },
   },
 
   {
     name: "dump_automation_rules",
     description:
-      "Dump all Automation for Jira (A4J) rules from the in-memory cache. " +
-      "Includes triggers, conditions, actions, state, and execution counts. " +
+      "Dump Automation for Jira (A4J) rules from the in-memory cache with their full " +
+      "triggers, conditions, actions, and state. Rules can be large, so this is paginated " +
+      "(offset/limit, default 10) and filterable by project_key and name_contains; use " +
+      "list_automation_rules for a compact overview of all rules. " +
       "Cache is refreshed every 10 minutes.",
-    inputShape: {},
-    async handler({ cache }) {
-      const allRules = await cache.getAllRules();
-      const result = allRules.map((r: any) => ({
+    inputShape: {
+      project_key: z
+        .string()
+        .optional()
+        .describe("Only rules scoped to or referencing this project key"),
+      ...nameFilterShape,
+      ...pageShape(AUTOMATION_DUMP_PAGE),
+    },
+    async handler({ cache }, args) {
+      const rules = args.project_key
+        ? await cache.getRulesForProject(args.project_key)
+        : await cache.getAllRules();
+      const page = paginate(filterByName(rules, args.name_contains), args, AUTOMATION_DUMP_PAGE);
+      const items = page.items.map((r: any) => ({
         id: r.id,
         name: r.name,
         state: has(r, "state") ? r.state : r.enabled,
@@ -150,7 +182,7 @@ export const dumpTools: ToolDef[] = [
         created: r.created,
         updated: r.updated,
       }));
-      return dumps(result);
+      return dumps({ ...page, items });
     },
   },
 ];

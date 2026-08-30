@@ -339,18 +339,36 @@ export class JiraClient {
   }
 
   /** Export a workflow as raw XML via a ScriptRunner custom endpoint. */
+  /**
+   * Fetch a workflow's XML descriptor (null on a network failure or an empty
+   * body). Throws HttpStatusError on an error status, with a message naming
+   * the cause: 401/403 means the token's user lacks the Jira Administrators
+   * global permission the endpoint requires.
+   */
   async exportWorkflowXml(workflowName: string): Promise<string | null> {
+    let res: { status: number; text: string };
     try {
-      const { status, text } = await this.request(
+      res = await this.request(
         "GET",
         "/rest/scriptrunner/latest/custom/jiraMcpExportWorkflow",
         { params: { workflowName } },
       );
-      if (status >= 400) return null;
-      return text.length > 0 ? text : null;
     } catch {
       return null;
     }
+    if (res.status >= 400) {
+      const cause =
+        res.status === 401 || res.status === 403
+          ? "the token's user lacks the Jira Administrators global permission the endpoint requires"
+          : (res.text || "").split(/\s+/).join(" ").slice(0, 200);
+      throw new HttpStatusError(
+        res.status,
+        res.text,
+        "/rest/scriptrunner/latest/custom/jiraMcpExportWorkflow",
+        `jiraMcpExportWorkflow returned HTTP ${res.status}: ${cause}`,
+      );
+    }
+    return res.text.length > 0 ? res.text : null;
   }
 
   async getProjectStatuses(projectKey: string): Promise<Json[]> {

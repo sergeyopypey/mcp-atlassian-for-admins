@@ -90,13 +90,22 @@ export const workflowTools: ToolDef[] = [
     name: "get_workflow_detail",
     description:
       "Get full workflow detail by name: all statuses, transitions with conditions, " +
-      "validators, post-functions, and properties. Use for deep process analysis.",
+      "validators, post-functions, and properties. Use for deep process analysis. " +
+      "Read from the XML descriptor via a ScriptRunner endpoint (Jira Administrators permission); " +
+      "otherwise falls back to the REST API (source: rest-api, with xmlExportError naming " +
+      "why the XML export failed).",
     inputShape: { workflow_name: z.string().describe("Exact workflow name") },
     async handler({ client }, args) {
       const workflowName = args.workflow_name;
 
       // Try the ScriptRunner XML export first (richest detail).
-      const xmlStr = await client.exportWorkflowXml(workflowName);
+      let xmlStr: string | null = null;
+      let xmlExportError: string | undefined;
+      try {
+        xmlStr = await client.exportWorkflowXml(workflowName);
+      } catch (e: any) {
+        xmlExportError = String(e?.message ?? e);
+      }
       if (xmlStr) {
         try {
           const parsed: Record<string, unknown> = parseWorkflowXml(xmlStr);
@@ -132,6 +141,7 @@ export const workflowTools: ToolDef[] = [
         description: wf.description ?? "",
         isDefault: wf.isDefault ?? false,
         source: "rest-api",
+        xmlExportError,
         statuses: statuses.map((s: any) => ({
           id: s.id,
           name: s.name,
