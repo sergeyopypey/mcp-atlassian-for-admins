@@ -17,13 +17,12 @@ Custom REST endpoints for Jira Data Center that expose Java API data unavailable
 | `/jiraMcpFieldConfigurationSchemes` | Field configuration schemes with issue type mappings and project associations |
 | `/jiraMcpScreenSchemes` | Screen schemes with operation→screen mappings |
 | `/jiraMcpIssueTypeScreenSchemes` | Issue type screen schemes with issue type→screen scheme mappings |
-| `/jiraMcpWorkflowTransitionDetails` | Full transition rule config (post-function params, condition/validator args) |
 | `/jiraMcpCustomFieldContexts` | Custom field contexts with project/issue type scoping |
 | `/jiraMcpListeners` | All registered event listeners |
 | `/jiraMcpScheduledServices` | Jira scheduled services (mail handlers, etc.) |
 | `/jiraMcpApplicationLinks` | Application links to Confluence, Bitbucket, etc. |
 | `/jiraMcpEffectivePermissions` | Resolved effective permissions for user+project |
-| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow_detail`, `dump_workflows`); requires the Jira Administrators global permission |
+| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow_detail`, `get_workflow_transition_details`, `dump_workflows`); requires the Jira Administrators global permission |
 | `/jiraMcpServerLog` | List/tail/grep server log files; restricted to the Jira/Tomcat log directories; requires the System Administrators global permission |
 
 All endpoints are wired into working MCP tools (see the project README).

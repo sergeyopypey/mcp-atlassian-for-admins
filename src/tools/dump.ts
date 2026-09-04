@@ -70,9 +70,10 @@ export const dumpTools: ToolDef[] = [
   {
     name: "dump_workflows",
     description:
-      "Dump workflows with their statuses (workflow steps) and transitions " +
-      "(id, name, from, to). With detail=true each transition also carries its " +
-      "conditions, validators, and pre/post-functions with their arguments. " +
+      "Dump workflows with their statuses (workflow steps, with meta properties such " +
+      "as jira.permission.*) and transitions (id, name, from, to). With detail=true " +
+      "each transition also carries its meta, conditions, validators, and " +
+      "pre/post-functions with their arguments in execution order. " +
       "Parsed from each workflow's XML descriptor via a ScriptRunner endpoint " +
       "(Jira Administrators permission — without it the call fails with an explanation); " +
       "a workflow whose XML export or parsing fails carries an `error` instead. " +
@@ -138,6 +139,7 @@ export const dumpTools: ToolDef[] = [
             stepId: s.id,
             name: s.name,
             statusId: s.statusId,
+            ...(s.meta && { meta: s.meta }),
           }));
           entry.transitions = args.detail
             ? transitions

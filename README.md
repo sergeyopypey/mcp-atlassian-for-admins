@@ -101,11 +101,11 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 - `list_active_workflows` — active workflows (excludes backups and copies)
 - `list_all_workflows` — all workflows including backups and deprecated
-- `get_workflow_detail` — full workflow: statuses, transitions, conditions, validators, post-functions
+- `get_workflow_detail` — full workflow: statuses with meta properties, transitions, conditions, validators, pre/post-functions in order, decoded ScriptRunner scripts
 - `get_workflow_statuses_and_transitions` — statuses and transitions with screens and fields
 - `list_workflow_schemes` — all workflow schemes with issue-type mappings
 - `get_workflow_scheme` — one workflow scheme by ID
-- `get_workflow_transition_details` † — full transition rule config (post-function, condition, validator args)
+- `get_workflow_transition_details` † — rule config of all or one transition (condition tree, validator and post-function args, decoded scripts)
 
 **Screens**
 

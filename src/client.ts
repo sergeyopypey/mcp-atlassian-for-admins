@@ -565,15 +565,6 @@ export class JiraClient {
     return this.scriptrunnerGet("jiraMcpEffectivePermissions", params);
   }
 
-  async getWorkflowTransitionDetails(
-    workflowName: string,
-    transitionId?: number | null,
-  ): Promise<Json> {
-    const params: Params = { workflowName };
-    if (transitionId !== undefined && transitionId !== null) params.transitionId = transitionId;
-    return this.scriptrunnerGet("jiraMcpWorkflowTransitionDetails", params);
-  }
-
   // -- server logs (ScriptRunner) -----------------------------------------
 
   async listServerLogFiles(): Promise<Json> {

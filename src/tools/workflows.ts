@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { dumps } from "../json.js";
-import { parseWorkflowXml } from "../lib/workflowXml.js";
+import { parseWorkflowXml, type ActionEntry } from "../lib/workflowXml.js";
 import type { ToolDef } from "./types.js";
 import { has } from "./util.js";
 
@@ -89,8 +89,11 @@ export const workflowTools: ToolDef[] = [
   {
     name: "get_workflow_detail",
     description:
-      "Get full workflow detail by name: all statuses, transitions with conditions, " +
-      "validators, post-functions, and properties. Use for deep process analysis. " +
+      "Get full workflow detail by name: statuses with their meta properties " +
+      "(jira.permission.*, jira.issue.editable, ...), transitions with conditions, " +
+      "validators, and pre/post-functions in execution order with their arguments " +
+      "(ScriptRunner inline scripts decoded to Groovy source), transition and " +
+      "workflow meta. Use for deep process analysis. " +
       "Read from the XML descriptor via a ScriptRunner endpoint (Jira Administrators permission); " +
       "otherwise falls back to the REST API (source: rest-api, with xmlExportError naming " +
       "why the XML export failed).",
@@ -382,19 +385,53 @@ export const workflowTools: ToolDef[] = [
   {
     name: "get_workflow_transition_details",
     description:
-      "Full transition rule configuration for a workflow — post-function parameters, " +
-      "condition arguments, validator arguments (the actual config, not just class " +
-      "names). Backed by a ScriptRunner endpoint.",
+      "Full rule configuration of a workflow's transitions: conditions (AND/OR tree), " +
+      "validators, and pre/post-functions in execution order, with their arguments — " +
+      "ScriptRunner inline scripts decoded to Groovy source (or `scriptPath: …`), " +
+      "className for non-core rules, and transition meta properties. Each transition " +
+      "appears once, with `from` listing every source status (initial, global, and " +
+      "common transitions are included). Parsed from the XML descriptor via a " +
+      "ScriptRunner endpoint (Jira Administrators permission). Pass transition_id to " +
+      "keep large workflows within the response limit.",
     inputShape: {
       workflow_name: z.string().describe("Exact workflow name"),
       transition_id: z.coerce.number().int().optional().describe("Optional: filter to one transition"),
     },
     async handler({ client }, args) {
-      const data = await client.getWorkflowTransitionDetails(
-        args.workflow_name,
-        args.transition_id ?? null,
-      );
-      return dumps(data);
+      const workflowName: string = args.workflow_name;
+      const xmlStr = await client.exportWorkflowXml(workflowName);
+      if (!xmlStr) {
+        return dumps({ error: `Workflow XML export for '${workflowName}' returned nothing` });
+      }
+      const parsed = parseWorkflowXml(xmlStr);
+
+      // Common and global transitions are listed under every step they leave
+      // from; merge them by id and collect the source statuses.
+      const byId = new Map<number, Omit<ActionEntry, "from"> & { from: string[] }>();
+      const all = [
+        ...(parsed.initialActions ?? []),
+        ...parsed.steps.flatMap((s) => s.actions ?? []),
+        ...(parsed.globalActions ?? []),
+      ];
+      for (const t of all) {
+        if (args.transition_id !== undefined && t.id !== args.transition_id) continue;
+        const seen = byId.get(t.id);
+        if (seen) {
+          if (!seen.from.includes(t.from)) seen.from.push(t.from);
+        } else {
+          byId.set(t.id, { ...t, from: [t.from] });
+        }
+      }
+      if (args.transition_id !== undefined && byId.size === 0) {
+        return dumps({
+          error: `Transition ${args.transition_id} not found in workflow '${workflowName}'`,
+        });
+      }
+      return dumps({
+        workflow: workflowName,
+        source: "scriptrunner-xml",
+        transitions: [...byId.values()],
+      });
     },
   },
 ];

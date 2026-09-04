@@ -170,3 +170,63 @@ test("parseWorkflowXml decodes ScriptRunner base64 arg values", () => {
   );
   assert.equal(args.plain, 'issue.summary == "x"'); // non-blob values pass through
 });
+
+test("parseWorkflowXml keeps meta, rule order, class names, and stay-in-status results", () => {
+  const xml = `<workflow>
+    <meta name="jira.description">Example</meta>
+    <steps>
+      <step id="1" name="Open">
+        <meta name="jira.status.id">1</meta>
+        <meta name="jira.permission.worklog.denied">denied</meta>
+        <actions>
+          <action id="11" name="Comment only">
+            <meta name="jira.fieldscreen.id">10000</meta>
+            <meta name="opsbar-sequence">10</meta>
+            <restrict-to>
+              <conditions type="AND">
+                <condition type="class">
+                  <arg name="class.name">com.atlassian.jira.workflow.condition.AllowOnlyAssignee</arg>
+                </condition>
+                <condition type="class">
+                  <arg name="class.name">com.example.plugin.CustomCondition</arg>
+                </condition>
+              </conditions>
+            </restrict-to>
+            <results>
+              <unconditional-result step="-1">
+                <post-functions>
+                  <function type="class">
+                    <arg name="class.name">com.example.plugin.First</arg>
+                  </function>
+                  <function type="class">
+                    <arg name="class.name">com.atlassian.jira.workflow.function.issue.IssueReindexFunction</arg>
+                  </function>
+                </post-functions>
+              </unconditional-result>
+            </results>
+          </action>
+        </actions>
+      </step>
+    </steps>
+  </workflow>`;
+  const parsed = parseWorkflowXml(xml);
+  assert.deepEqual(parsed.meta, { "jira.description": "Example" });
+  const step = parsed.steps[0];
+  assert.equal(step.statusId, "1");
+  assert.deepEqual(step.meta, { "jira.permission.worklog.denied": "denied" });
+  const action = step.actions?.[0];
+  assert.equal(action?.to, "(current status)");
+  assert.equal(action?.screenId, "10000");
+  assert.deepEqual(action?.meta, { "opsbar-sequence": "10" });
+  assert.deepEqual(action?.conditions, {
+    operator: "AND",
+    items: [
+      { type: "OnlyAssignee" },
+      { type: "CustomCondition", className: "com.example.plugin.CustomCondition" },
+    ],
+  });
+  assert.deepEqual(action?.postFunctions, [
+    { type: "First", className: "com.example.plugin.First" },
+    { type: "ReindexIssue" },
+  ]);
+});
