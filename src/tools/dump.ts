@@ -1,15 +1,10 @@
 /** Bulk dump tools — aggregate entire Jira instance config into structured JSON. */
 
 import { z } from "zod";
-import { boundedAll } from "../client.js";
-import { isHttpStatusError } from "../errors.js";
 import { dumps } from "../json.js";
-import { parseWorkflowXml } from "../lib/workflowXml.js";
 import type { ToolDef } from "./types.js";
 import { safe, has, filterByName, nameFilterShape, pageShape, paginate } from "./util.js";
 
-const WORKFLOW_DUMP_PAGE = 20;
-const WORKFLOW_DUMP_DETAIL_PAGE = 1;
 const AUTOMATION_DUMP_PAGE = 10;
 
 export const dumpTools: ToolDef[] = [
@@ -64,92 +59,6 @@ export const dumpTools: ToolDef[] = [
         },
       };
       return dumps(result);
-    },
-  },
-
-  {
-    name: "dump_workflows",
-    description:
-      "Dump workflows with their statuses (workflow steps, with meta properties such " +
-      "as jira.permission.*) and transitions (id, name, from, to). With detail=true " +
-      "each transition also carries its meta, conditions, validators, and " +
-      "pre/post-functions with their arguments in execution order. " +
-      "Parsed from each workflow's XML descriptor via a ScriptRunner endpoint " +
-      "(Jira Administrators permission — without it the call fails with an explanation); " +
-      "a workflow whose XML export or parsing fails carries an `error` instead. " +
-      "Paginated (offset/limit; default 20, or 1 with detail=true) and filterable by " +
-      "name_contains. For one workflow, get_workflow_detail is cheaper.",
-    inputShape: {
-      ...nameFilterShape,
-      detail: z
-        .boolean()
-        .default(false)
-        .describe("Include transition conditions, validators, and pre/post-functions"),
-      ...pageShape(`${WORKFLOW_DUMP_PAGE}, or ${WORKFLOW_DUMP_DETAIL_PAGE} with detail=true`),
-    },
-    async handler({ client }, args) {
-      const workflows = await safe(client.listWorkflows(), [] as any[], "workflows");
-      const named = workflows.map((wf: any) => ({ ...wf, name: wf.name ?? wf.id?.name }));
-      const page = paginate(
-        filterByName(named, args.name_contains),
-        args,
-        args.detail ? WORKFLOW_DUMP_DETAIL_PAGE : WORKFLOW_DUMP_PAGE,
-      );
-
-      // /rest/api/2/workflow only carries summary fields (name, description,
-      // steps count, default) — statuses and transitions come from the XML.
-      const items = await boundedAll(
-        page.items.map((wf: any) => async () => {
-          const name: string = wf.name;
-          const entry: Record<string, unknown> = {
-            name,
-            description: wf.description ?? "",
-            isDefault: has(wf, "isDefault") ? wf.isDefault : (wf.default ?? false),
-          };
-
-          let xmlStr: string | null = null;
-          let exportError = "workflow XML export unavailable";
-          try {
-            xmlStr = await client.exportWorkflowXml(name);
-          } catch (e: any) {
-            // Missing permission affects every workflow — fail the whole call.
-            if (isHttpStatusError(e) && (e.status === 401 || e.status === 403)) throw e;
-            exportError = String(e?.message ?? e);
-          }
-          let parsed: ReturnType<typeof parseWorkflowXml> | null = null;
-          if (xmlStr) {
-            try {
-              parsed = parseWorkflowXml(xmlStr);
-            } catch (e) {
-              console.error(`dump: workflow XML parse failed for '${name}' — ${e}`);
-            }
-          }
-          if (!parsed) {
-            entry.error = exportError;
-            entry.stepCount = wf.steps ?? null;
-            return entry;
-          }
-
-          const transitions = [
-            ...(parsed.initialActions ?? []),
-            ...parsed.steps.flatMap((s) => s.actions ?? []),
-            ...(parsed.globalActions ?? []),
-          ];
-          entry.statuses = parsed.steps.map((s) => ({
-            stepId: s.id,
-            name: s.name,
-            statusId: s.statusId,
-            ...(s.meta && { meta: s.meta }),
-          }));
-          entry.transitions = args.detail
-            ? transitions
-            : transitions.map((t) => ({ id: t.id, name: t.name, from: t.from, to: t.to }));
-          entry.statusCount = parsed.steps.length;
-          entry.transitionCount = transitions.length;
-          return entry;
-        }),
-      );
-      return dumps({ ...page, items });
     },
   },
 

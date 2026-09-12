@@ -15,6 +15,10 @@ import { HttpStatusError, isHttpStatusError } from "./errors.js";
 const PAGINATION_MAX = 1000; // safety cap so we never loop forever
 const MAX_CONCURRENCY = 10; // cap parallel requests; DC returns 403 above ~50 rapid concurrent
 const REQUEST_TIMEOUT_MS = 60_000;
+// Jira DC rate limiting answers 429 with Retry-After (seconds); the request
+// was not processed, so it is retried after the advised pause.
+const RATE_LIMIT_RETRIES = 4;
+const RATE_LIMIT_MAX_WAIT_MS = 10_000;
 
 // Assets (Insight) lives on the same DC host as Jira. The original
 // `/rest/insight/1.0` path works on every bundled version (JSM DC 4.15+); the
@@ -124,12 +128,17 @@ export class JiraClient {
       method,
       headers: opts.headers ? { ...this.config.headers, ...opts.headers } : this.config.headers,
       dispatcher: this.agent,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     };
     if (opts.json !== undefined) init.body = JSON.stringify(opts.json);
-    const res = await fetch(url, init);
-    const text = await res.text();
-    return { status: res.status, text };
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      const text = await res.text();
+      if (res.status !== 429 || attempt >= RATE_LIMIT_RETRIES) return { status: res.status, text };
+      const retryAfterS = Number(res.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfterS) && retryAfterS > 0 ? retryAfterS * 1000 : 1000 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, Math.min(waitMs, RATE_LIMIT_MAX_WAIT_MS)));
+    }
   }
 
   private parse(text: string): Json {
@@ -312,33 +321,6 @@ export class JiraClient {
     return this.get("/rest/api/2/workflow");
   }
 
-  async getWorkflowByName(name: string): Promise<Json | null> {
-    const workflows = await this.listWorkflows();
-    for (const wf of workflows) {
-      if (wf?.name === name) return wf;
-    }
-    return null;
-  }
-
-  async getWorkflowTransitions(workflowId: string | number): Promise<Json[]> {
-    try {
-      return await this.get(`/rest/api/2/workflow/${workflowId}/transitions`);
-    } catch (e) {
-      if (isHttpStatusError(e)) return [];
-      throw e;
-    }
-  }
-
-  async getWorkflowDesigner(workflowName: string): Promise<Json | null> {
-    try {
-      return await this.get("/rest/workflowDesigner/latest/workflows", { name: workflowName });
-    } catch (e) {
-      if (isHttpStatusError(e)) return null;
-      throw e;
-    }
-  }
-
-  /** Export a workflow as raw XML via a ScriptRunner custom endpoint. */
   /**
    * Fetch a workflow's XML descriptor (null on a network failure or an empty
    * body). Throws HttpStatusError on an error status, with a message naming

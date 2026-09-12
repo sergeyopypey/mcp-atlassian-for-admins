@@ -22,7 +22,7 @@ Custom REST endpoints for Jira Data Center that expose Java API data unavailable
 | `/jiraMcpScheduledServices` | Jira scheduled services (mail handlers, etc.) |
 | `/jiraMcpApplicationLinks` | Application links to Confluence, Bitbucket, etc. |
 | `/jiraMcpEffectivePermissions` | Resolved effective permissions for user+project |
-| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow_detail`, `get_workflow_transition_details`, `dump_workflows`); requires the Jira Administrators global permission |
+| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow`, `search_workflow_rules`); requires the Jira Administrators global permission |
 | `/jiraMcpServerLog` | List/tail/grep server log files; restricted to the Jira/Tomcat log directories; requires the System Administrators global permission |
 
 All endpoints are wired into working MCP tools (see the project README).

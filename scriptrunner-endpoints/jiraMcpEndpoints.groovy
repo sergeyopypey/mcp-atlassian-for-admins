@@ -718,10 +718,9 @@ jiraMcpEffectivePermissions(httpMethod: "GET") { MultivaluedMap queryParams ->
 /**
  * Export Workflow
  *
- * Returns a workflow's OpenSymphony XML descriptor. Used by get_workflow_detail,
- * get_workflow_transition_details and dump_workflows
- * to parse transition conditions, validators and post-functions — detail the
- * Workflow Designer API does not expose.
+ * Returns a workflow's OpenSymphony XML descriptor. Used by get_workflow and
+ * search_workflow_rules to parse statuses, transitions and their conditions,
+ * validators and post-functions — detail the REST API does not expose.
  *
  * Endpoint: GET /rest/scriptrunner/latest/custom/jiraMcpExportWorkflow
  * Query params:

@@ -190,7 +190,7 @@ type Condition = {
   negate?: true;
   args?: Record<string, string>;
 };
-type ConditionBlock = Condition | { operator: string; items: Array<Condition | ConditionBlock> };
+export type ConditionBlock = Condition | { operator: string; items: Array<Condition | ConditionBlock> };
 
 /** Recursively parse a conditions block (AND/OR with nesting). */
 function parseConditionBlock(condEl: XmlNode): ConditionBlock | null {
@@ -224,7 +224,7 @@ function parseConditions(restrictEl: XmlNode | null): ConditionBlock | null {
   return parseConditionBlock(conditionsEl);
 }
 
-interface FunctionEntry {
+export interface FunctionEntry {
   type: string;
   className?: string;
   args?: Record<string, string>;

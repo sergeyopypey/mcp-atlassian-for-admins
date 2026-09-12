@@ -6,7 +6,7 @@
 ![MCP](https://img.shields.io/badge/Model_Context_Protocol-server-purple)
 
 A **read-only** Model Context Protocol (MCP) server for deep introspection of
-**Jira Data Center 10** — 76 tools covering projects, workflows, schemes,
+**Jira Data Center 10** — 74 tools covering projects, workflows, schemes,
 fields, automation, Assets (Insight), and more.
 
 > **Read-only** — this server cannot modify any Jira configuration.
@@ -65,7 +65,7 @@ is replaced by an error that tells the model how to narrow the call.
 
 ## Self-test
 
-`npm run selftest` exercises all 76 tools against the live Jira instance and
+`npm run selftest` exercises all 74 tools against the live Jira instance and
 prints a coverage report — one line per tool variant, then a summary. It
 auto-discovers the IDs/keys parameterised tools need (project keys, scheme IDs,
 workflow names, ...) from the `list_*`/`dump_*` tools, so no manual setup is
@@ -73,8 +73,8 @@ needed. Credentials are read from the environment, falling back to the
 `jira-dc` server's `env` block in `.mcp.json`.
 
 ```bash
-npm run selftest                          # all 76 tools
-npm run selftest -- --only get_workflow_detail   # one tool (deps auto-included)
+npm run selftest                          # all 74 tools
+npm run selftest -- --only get_workflow   # one tool (deps auto-included)
 npm run selftest -- --skip find_field_usage      # exclude slow tools
 ```
 
@@ -84,7 +84,7 @@ full machine-readable report at `selftest-output/_report.json`. Flags:
 
 ## Tools
 
-All 76 tools are read-only against Jira (one, `dump_script_registry`, also writes
+All 74 tools are read-only against Jira (one, `dump_script_registry`, also writes
 its export bundle to a local directory). Tools marked † require the companion ScriptRunner
 Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
@@ -101,11 +101,10 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 - `list_active_workflows` — active workflows (excludes backups and copies)
 - `list_all_workflows` — all workflows including backups and deprecated
-- `get_workflow_detail` — full workflow: statuses with meta properties, transitions, conditions, validators, pre/post-functions in order, decoded ScriptRunner scripts
-- `get_workflow_statuses_and_transitions` — statuses and transitions with screens and fields
+- `get_workflow` † — one workflow: statuses with category and meta properties, each transition once with its source statuses, screen, meta, and rule counts; with `transition_ids` (or `"all"`) the full rules — condition tree, validators, pre/post-functions in execution order with arguments and decoded ScriptRunner scripts
+- `search_workflow_rules` † — find a text (field id, class, user, group, `jira.permission.*` key, script fragment) across the rules and meta of all workflows
 - `list_workflow_schemes` — all workflow schemes with issue-type mappings
 - `get_workflow_scheme` — one workflow scheme by ID
-- `get_workflow_transition_details` † — rule config of all or one transition (condition tree, validator and post-function args, decoded scripts)
 
 **Screens**
 
@@ -213,7 +212,6 @@ The PAT user needs read access to the relevant Assets object schemas.
 **Dump**
 
 - `dump_global_config` — issue types, statuses, resolutions, priorities, link types, field counts
-- `dump_workflows` — workflows with statuses and transitions (rules with `detail`); paginated
 - `dump_automation_rules` — full A4J rules from the cache; paginated, filter by project or name
 - `dump_script_registry` — full ScriptRunner inventory (listeners, REST endpoints, jobs, behaviours, fragments, script fields, resources, workflow functions, script-root `.groovy` files, instance metadata, `Output.csv`) reproducing ScriptRunner's "Export all scripts" bundle. **Writes the bundle to a local directory** (`output_dir`); reads from Jira are read-only.
 

@@ -1,5 +1,5 @@
 /**
- * MCP server — registers all 60 tools and wires them to the Jira DC client.
+ * MCP server — registers all tools and wires them to the Jira DC client.
  *
  * This server operates in read-only mode. It does not modify Jira configuration.
  */
@@ -8,15 +8,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { JiraClient } from "./client.js";
 import { AutomationCache } from "./automationCache.js";
 import { ALL_TOOLS } from "./tools/index.js";
+import { MAX_RESPONSE_CHARS, exceedsResponseLimit } from "./json.js";
 import type { ToolContext } from "./tools/types.js";
 
-/**
- * Largest tool result (in characters) handed to the MCP client. Claude Code
- * drops results over ~25k tokens, which dense JSON reaches at roughly 75k
- * characters; an oversized result is replaced by an error telling the model
- * how to narrow the call. `JIRA_MCP_MAX_RESPONSE_CHARS=0` disables the check.
- */
-const MAX_RESPONSE_CHARS = Number(process.env.JIRA_MCP_MAX_RESPONSE_CHARS ?? 60_000);
 
 function tooLargeError(toolName: string, size: number): string {
   return JSON.stringify({
@@ -55,7 +49,7 @@ export function createServer(): CreatedServer {
       async (args: Record<string, any>) => {
         try {
           let text = await tool.handler(ctx, args ?? {});
-          if (MAX_RESPONSE_CHARS > 0 && text.length > MAX_RESPONSE_CHARS) {
+          if (exceedsResponseLimit(text)) {
             console.error(`Tool ${tool.name} response too large: ${text.length} chars`);
             text = tooLargeError(tool.name, text.length);
           }

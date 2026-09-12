@@ -286,7 +286,6 @@ function harvest(h: Harvest, tool: string, parsed: any): void {
     }
     case "list_active_workflows":
     case "list_all_workflows":
-    case "dump_workflows":
       add(h, "workflow_names", objs.map((w) => w.name));
       break;
     case "list_screens":
@@ -396,11 +395,6 @@ function buildTestPlan(): ToolCase[] {
     V("second page", { offset: 5, limit: 5 }, "list_fields:page"),
   ];
 
-  const discDumpWorkflows: DiscoverFn = () => [
-    V("summary", {}, "dump_workflows:summary"),
-    V("detail", { detail: true, limit: 1 }, "dump_workflows:detail"),
-  ];
-
   const discCustomFieldsUsage: DiscoverFn = (h) => {
     const variants = [
       V("no filter", {}, "cfu:none"),
@@ -478,6 +472,24 @@ function buildTestPlan(): ToolCase[] {
     if (pk) variants.unshift(V("project key", { query: pk }, "search:project_key"));
     return variants;
   };
+
+  const discGetWorkflow: DiscoverFn = (h) => {
+    const name = (h.workflow_names ?? [])[0];
+    if (!name) return null;
+    return [
+      V("structure", { workflow_name: name }, "workflow:structure"),
+      V("all rules", { workflow_name: name, transition_ids: "all" }, "workflow:all_rules"),
+    ];
+  };
+  discGetWorkflow.needs = ["workflow_names"];
+
+  // Scoped to one workflow: a full scan exports every workflow's XML.
+  const discSearchWorkflowRules: DiscoverFn = (h) => {
+    const name = (h.workflow_names ?? [])[0];
+    if (!name) return null;
+    return [V("class name", { query: "com.atlassian", name_contains: name })];
+  };
+  discSearchWorkflowRules.needs = ["workflow_names"];
 
   const discFindUsers: DiscoverFn = () => [
     V("query", { query: "a" }, "users:query"),
@@ -569,8 +581,6 @@ function buildTestPlan(): ToolCase[] {
   const plan: ToolCase[] = [
     // ---- Phase 1: zero-arg discovery -----------------------------------
     toolCase("dump_global_config", 1, noArgs),
-    toolCase("dump_workflows", 1, discDumpWorkflows,
-      { branches: ["dump_workflows:summary", "dump_workflows:detail"] }),
     toolCase("dump_automation_rules", 1, noArgs),
     toolCase("list_projects", 1, noArgs),
     toolCase("list_active_workflows", 1, noArgs),
@@ -614,8 +624,9 @@ function buildTestPlan(): ToolCase[] {
     toolCase("get_project_versions", 2, single("project_keys", "project_key")),
     toolCase("get_createmeta_fields", 2, discCreatemeta,
       { skipReason: "no project/issue-type pair discovered from get_project_config" }),
-    toolCase("get_workflow_detail", 2, single("workflow_names", "workflow_name")),
-    toolCase("get_workflow_statuses_and_transitions", 2, single("workflow_names", "workflow_name")),
+    toolCase("get_workflow", 2, discGetWorkflow,
+      { branches: ["workflow:structure", "workflow:all_rules"] }),
+    toolCase("search_workflow_rules", 2, discSearchWorkflowRules),
     toolCase("get_workflow_scheme", 2, single("workflow_scheme_ids", "scheme_id")),
     toolCase("get_screen_tabs_and_fields", 2, single("screen_ids", "screen_id")),
     toolCase("get_screen_scheme", 2, single("screen_scheme_ids", "scheme_id"),
@@ -657,7 +668,6 @@ function buildTestPlan(): ToolCase[] {
     toolCase("get_issue_type_screen_scheme", 2,
       single("issue_type_screen_scheme_ids", "scheme_id"),
       { skipReason: "no issue type screen schemes discovered" }),
-    toolCase("get_workflow_transition_details", 2, single("workflow_names", "workflow_name")),
     toolCase("get_effective_permissions", 2, discEffectivePerms),
     toolCase("get_object_schema", 2, single("schema_ids", "schema_id"),
       { skipReason: "no Assets object schema discovered" }),
