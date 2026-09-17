@@ -917,7 +917,8 @@ export class JiraClient {
           iql,
           objectSchemaId: opts.objectSchemaId,
           page,
-          resultPerPage: IQL_PAGE_SIZE,
+          // Never fetch (and expand attributes of) more objects than will be returned.
+          resultPerPage: Math.max(1, Math.min(IQL_PAGE_SIZE, opts.maxResults ?? IQL_PAGE_SIZE)),
           includeAttributes: opts.includeAttributes ?? true,
         });
         total = data?.totalFilterCount ?? 0;

@@ -184,8 +184,10 @@ export const assetsTools: ToolDef[] = [
       '(Department.Name = "IT"), and "order by". Returns the total match count and up to ' +
       `max_results objects (default ${IQL_DEFAULT_MAX_RESULTS}); each attribute is given as ` +
       "objectTypeAttributeId (names via get_object_type_attributes) with its display values, " +
-      "references as {id, objectKey, label}. Narrow the IQL rather than raising max_results; " +
-      "use get_object for one object's full detail.",
+      "references as {id, objectKey, label}. Narrow the IQL rather than raising max_results: " +
+      "every object carries all its attributes, so for attribute-heavy types (15+ attributes) " +
+      "a few dozen objects can already exceed the response size limit and the call fails. " +
+      "Use get_object for one object's full detail.",
     inputShape: {
       iql: z.string().describe('IQL query string, e.g. \'objectType = "Server"\''),
       schema_id: z
