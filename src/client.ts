@@ -362,7 +362,8 @@ export class JiraClient {
       const data = await this.get("/rest/servicedeskapi/servicedesk");
       return data?.values ?? [];
     } catch (e) {
-      if (isHttpStatusError(e)) return [];
+      // Without JSM some instances answer 200 with an HTML page instead of a 404.
+      if (isHttpStatusError(e) || e instanceof SyntaxError) return [];
       throw e;
     }
   }
@@ -667,6 +668,34 @@ export class JiraClient {
       if (isHttpStatusError(e)) return [];
       throw e;
     }
+  }
+
+  // SLA configuration comes from JSM's internal admin REST (the API behind
+  // Project settings → SLAs / Calendars); the public servicedeskapi only
+  // exposes per-request SLA values, not metric or calendar definitions.
+
+  /** SLA metrics of a service project: `{timeMetrics, calendarRefs, slaConsistencyData, ...}`. */
+  async getSlaMetrics(projectKey: string): Promise<Json> {
+    return this.get(
+      `/rest/servicedesk/1/servicedesk/agent/${encodeURIComponent(projectKey)}/sla/metrics`,
+    );
+  }
+
+  /** Calendars of a service desk (no working times); the built-in 24/7 calendar has no id. */
+  async getSlaCalendars(serviceDeskId: number): Promise<Json[]> {
+    return this.get(`/rest/servicedesk/1/servicedesk/${serviceDeskId}/sla/calendars`);
+  }
+
+  /** One calendar with `timeZone`, `workingTimes` and `holidays`. */
+  async getSlaCalendar(serviceDeskId: number, calendarId: number): Promise<Json> {
+    return this.get(`/rest/servicedesk/1/servicedesk/${serviceDeskId}/sla/calendars/${calendarId}`);
+  }
+
+  /** `{slaConfigurationErrors}` for one SLA metric (e.g. an invalid goal JQL). */
+  async getSlaValidation(serviceDeskId: number, metricId: number): Promise<Json> {
+    return this.get(
+      `/rest/servicedesk/1/servicedesk/${serviceDeskId}/sla/configuration/validate/${metricId}`,
+    );
   }
 
   // ======================================================================

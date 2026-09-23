@@ -83,6 +83,7 @@ const HARVEST_PRODUCERS: Record<string, string> = {
   notification_scheme_ids: "list_notification_schemes",
   board_ids: "list_boards",
   service_desk_ids: "list_service_desks",
+  service_desk_project_keys: "list_service_desks",
   rule_ids: "list_automation_rules",
   createmeta_pairs: "get_project_config",
   user_keys: "find_users",
@@ -311,6 +312,7 @@ function harvest(h: Harvest, tool: string, parsed: any): void {
       break;
     case "list_service_desks":
       add(h, "service_desk_ids", objs.map((d) => d.id));
+      add(h, "service_desk_project_keys", objs.map((d) => d.projectKey));
       break;
     case "list_automation_rules":
       add(h, "rule_ids", objs.map((r) => r.id));
@@ -656,6 +658,8 @@ function buildTestPlan(): ToolCase[] {
     toolCase("get_board_configuration", 2, single("board_ids", "board_id"),
       { skipReason: "instance has no agile boards" }),
     toolCase("get_service_desk_queues", 2, single("service_desk_ids", "service_desk_id"),
+      { skipReason: "instance has no JSM service desks" }),
+    toolCase("get_sla_config", 2, single("service_desk_project_keys", "project_key"),
       { skipReason: "instance has no JSM service desks" }),
     toolCase("analyze_project_config_chain", 2, single("project_keys", "project_key")),
     toolCase("search_config", 2, discSearchConfig,

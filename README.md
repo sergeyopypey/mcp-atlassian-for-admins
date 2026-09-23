@@ -6,7 +6,7 @@
 ![MCP](https://img.shields.io/badge/Model_Context_Protocol-server-purple)
 
 A **read-only** Model Context Protocol (MCP) server for deep introspection of
-**Jira Data Center 10** — 74 tools covering projects, workflows, schemes,
+**Jira Data Center 10** — 75 tools covering projects, workflows, schemes,
 fields, automation, Assets (Insight), and more.
 
 > **Read-only** — this server cannot modify any Jira configuration.
@@ -65,7 +65,7 @@ is replaced by an error that tells the model how to narrow the call.
 
 ## Self-test
 
-`npm run selftest` exercises all 74 tools against the live Jira instance and
+`npm run selftest` exercises all 75 tools against the live Jira instance and
 prints a coverage report — one line per tool variant, then a summary. It
 auto-discovers the IDs/keys parameterised tools need (project keys, scheme IDs,
 workflow names, ...) from the `list_*`/`dump_*` tools, so no manual setup is
@@ -73,7 +73,7 @@ needed. Credentials are read from the environment, falling back to the
 `jira-dc` server's `env` block in `.mcp.json`.
 
 ```bash
-npm run selftest                          # all 74 tools
+npm run selftest                          # all 75 tools
 npm run selftest -- --only get_workflow   # one tool (deps auto-included)
 npm run selftest -- --skip find_field_usage      # exclude slow tools
 ```
@@ -84,7 +84,7 @@ full machine-readable report at `selftest-output/_report.json`. Flags:
 
 ## Tools
 
-All 74 tools are read-only against Jira (one, `dump_script_registry`, also writes
+All 75 tools are read-only against Jira (one, `dump_script_registry`, also writes
 its export bundle to a local directory). Tools marked † require the companion ScriptRunner
 Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
@@ -153,6 +153,7 @@ Groovy endpoints (see [`scriptrunner-endpoints/`](scriptrunner-endpoints/)).
 
 - `list_service_desks` — all JSM service desks with project associations
 - `get_service_desk_queues` — queues for a JSM service desk
+- `get_sla_config` — SLA metrics (start/pause/stop conditions, goals), calendars, and config errors for a JSM project
 
 **Assets (Insight)**
 

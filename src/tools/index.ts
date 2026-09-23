@@ -1,4 +1,4 @@
-/** Aggregated registry of all 74 MCP tools. */
+/** Aggregated registry of all 75 MCP tools. */
 
 import type { ToolDef } from "./types.js";
 import { dumpTools } from "./dump.js";
