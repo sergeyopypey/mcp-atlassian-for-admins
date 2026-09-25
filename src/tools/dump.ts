@@ -1,25 +1,19 @@
 /** Bulk dump tools — aggregate entire Jira instance config into structured JSON. */
 
+import { z } from "zod";
 import { dumps } from "../json.js";
 import type { ToolDef } from "./types.js";
-import { safe, has } from "./util.js";
+import { safe, has, filterByName, nameFilterShape, pageShape, paginate } from "./util.js";
 
-function compactField(f: any): Record<string, unknown> {
-  return {
-    id: f.id,
-    name: f.name,
-    custom: f.custom ?? false,
-    type: f.schema ? (f.schema.type ?? null) : null,
-    customType: f.schema ? (f.schema.custom ?? null) : null,
-  };
-}
+const AUTOMATION_DUMP_PAGE = 10;
 
 export const dumpTools: ToolDef[] = [
   {
     name: "dump_global_config",
     description:
-      "Dump global Jira instance configuration: all fields (system + custom), " +
-      "issue types, statuses, resolutions, priorities, issue link types, server info. " +
+      "Dump global Jira instance configuration: issue types, statuses, resolutions, " +
+      "priorities, issue link types, server info, and system/custom field counts. " +
+      "Fields themselves are not listed here — use list_fields. " +
       "Use this first to understand the Jira instance's building blocks.",
     inputShape: {},
     async handler({ client }) {
@@ -59,10 +53,6 @@ export const dumpTools: ToolDef[] = [
           inward: lt.inward,
           outward: lt.outward,
         })),
-        fields: {
-          system: fields.filter((f: any) => !(f.custom ?? false)).map(compactField),
-          custom: fields.filter((f: any) => f.custom ?? false).map(compactField),
-        },
         fieldCount: {
           system: fields.filter((f: any) => !(f.custom ?? false)).length,
           custom: fields.filter((f: any) => f.custom ?? false).length,
@@ -73,83 +63,27 @@ export const dumpTools: ToolDef[] = [
   },
 
   {
-    name: "dump_workflows",
-    description:
-      "Dump all workflows with their statuses, transitions, conditions, validators, " +
-      "and post-functions. Essential for understanding process flows.",
-    inputShape: {},
-    async handler({ client }) {
-      const workflows = await safe(client.listWorkflows(), [] as any[], "workflows");
-
-      const result: any[] = [];
-      for (const wf of workflows) {
-        const entry: Record<string, unknown> = {
-          name: wf.name ?? wf.id?.name,
-          description: wf.description ?? "",
-          isDefault: wf.isDefault ?? false,
-        };
-
-        const statuses: any[] = wf.statuses ?? [];
-        let transitions: any[] = wf.transitions ?? [];
-
-        if (transitions.length === 0 && wf.id) {
-          const wfId =
-            typeof wf.id === "string" || typeof wf.id === "number"
-              ? wf.id
-              : (wf.id?.name ?? "");
-          transitions = await safe(
-            client.getWorkflowTransitions(wfId),
-            [] as any[],
-            `transitions(${wfId})`,
-          );
-        }
-
-        entry.statuses = statuses.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          category:
-            s.statusCategory && typeof s.statusCategory === "object"
-              ? (s.statusCategory.name ?? null)
-              : null,
-        }));
-        entry.transitions = transitions.map((t: any) => ({
-          id: t.id,
-          name: t.name,
-          from: has(t, "from")
-            ? t.from
-            : t.sourceStatus && typeof t.sourceStatus === "object"
-              ? (t.sourceStatus.name ?? null)
-              : null,
-          to: has(t, "to")
-            ? t.to
-            : t.targetStatus && typeof t.targetStatus === "object"
-              ? (t.targetStatus.name ?? null)
-              : null,
-          hasConditions: t.conditions != null && Object.keys(t.conditions).length > 0,
-          hasValidators: t.validators != null && Object.keys(t.validators).length > 0,
-          hasPostFunctions: t.postFunctions != null && Object.keys(t.postFunctions).length > 0,
-          conditions: t.conditions,
-          validators: t.validators,
-          postFunctions: t.postFunctions,
-        }));
-        entry.statusCount = (entry.statuses as any[]).length;
-        entry.transitionCount = (entry.transitions as any[]).length;
-        result.push(entry);
-      }
-      return dumps(result);
-    },
-  },
-
-  {
     name: "dump_automation_rules",
     description:
-      "Dump all Automation for Jira (A4J) rules from the in-memory cache. " +
-      "Includes triggers, conditions, actions, state, and execution counts. " +
+      "Dump Automation for Jira (A4J) rules from the in-memory cache with their full " +
+      "triggers, conditions, actions, and state. Rules can be large, so this is paginated " +
+      "(offset/limit, default 10) and filterable by project_key and name_contains; use " +
+      "list_automation_rules for a compact overview of all rules. " +
       "Cache is refreshed every 10 minutes.",
-    inputShape: {},
-    async handler({ cache }) {
-      const allRules = await cache.getAllRules();
-      const result = allRules.map((r: any) => ({
+    inputShape: {
+      project_key: z
+        .string()
+        .optional()
+        .describe("Only rules scoped to or referencing this project key"),
+      ...nameFilterShape,
+      ...pageShape(AUTOMATION_DUMP_PAGE),
+    },
+    async handler({ cache }, args) {
+      const rules = args.project_key
+        ? await cache.getRulesForProject(args.project_key)
+        : await cache.getAllRules();
+      const page = paginate(filterByName(rules, args.name_contains), args, AUTOMATION_DUMP_PAGE);
+      const items = page.items.map((r: any) => ({
         id: r.id,
         name: r.name,
         state: has(r, "state") ? r.state : r.enabled,
@@ -159,7 +93,7 @@ export const dumpTools: ToolDef[] = [
         created: r.created,
         updated: r.updated,
       }));
-      return dumps(result);
+      return dumps({ ...page, items });
     },
   },
 ];

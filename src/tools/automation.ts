@@ -3,7 +3,9 @@
 import { z } from "zod";
 import { dumps } from "../json.js";
 import type { ToolDef } from "./types.js";
-import { has } from "./util.js";
+import { filterByName, has, nameFilterShape, pageShape, paginate } from "./util.js";
+
+const RULE_LIST_PAGE = 100;
 
 const AUDIT_CATEGORIES = [
   "SUCCESS",
@@ -35,29 +37,35 @@ export const automationTools: ToolDef[] = [
     name: "list_automation_rules",
     description:
       "List A4J automation rules from the in-memory cache. " +
-      "Optionally filter by project_key. " +
-      "Shows name, state, trigger type, execution count. " +
-      "Cache is refreshed every 10 minutes.",
+      "Optionally filter by project_key and name_contains. " +
+      "Shows id, name, state, trigger type, created and updated. " +
+      "Paginated (offset/limit). Cache is refreshed every 10 minutes.",
     inputShape: {
       project_key: z
         .string()
         .optional()
         .describe("Optional project key to filter rules. Omit for all rules."),
+      ...nameFilterShape,
+      ...pageShape(RULE_LIST_PAGE),
     },
     async handler({ cache }, args) {
       const rules = args.project_key
         ? await cache.getRulesForProject(args.project_key)
         : await cache.getAllRules();
       return dumps(
-        rules.map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          state: has(r, "state") ? r.state : r.enabled ? "ENABLED" : "DISABLED",
-          triggerType: extractTriggerType(r),
-          created: r.created,
-          updated: r.updated,
-          executionCount: r.executionCount,
-        })),
+        paginate(
+          filterByName(rules, args.name_contains).map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            state: has(r, "state") ? r.state : r.enabled ? "ENABLED" : "DISABLED",
+            triggerType: extractTriggerType(r),
+            created: r.created,
+            updated: r.updated,
+            executionCount: r.executionCount,
+          })),
+          args,
+          RULE_LIST_PAGE,
+        ),
       );
     },
   },
@@ -201,8 +209,7 @@ export const automationTools: ToolDef[] = [
     inputShape: {},
     async handler({ cache }) {
       const count = await cache.refresh();
-      // Python emits this one compact (json.dumps without indent).
-      return JSON.stringify({ status: "refreshed", rules_loaded: count });
+      return dumps({ status: "refreshed", rules_loaded: count });
     },
   },
 ];

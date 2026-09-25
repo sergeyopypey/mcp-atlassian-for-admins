@@ -5,23 +5,36 @@
  * and rotations, Tomcat logs) via the jiraMcpServerLog ScriptRunner endpoint —
  * replaces the SSH-and-grep loop during incident investigations. The endpoint
  * restricts access server-side to files directly inside the Jira and Tomcat log
- * directories and requires jira-administrators membership.
+ * directories and requires the System Administrators global permission.
  */
 
 import { z } from "zod";
 import { dumps } from "../json.js";
 import type { ToolDef } from "./types.js";
+import { filterByName, nameFilterShape, pageShape, paginate } from "./util.js";
+
+const LOG_FILE_PAGE = 100;
 
 export const logTools: ToolDef[] = [
   {
     name: "list_server_log_files",
     description:
       "List the server's log files (name, size, last modified) from the Jira " +
-      "log directory and the Tomcat logs directory.",
-    inputShape: {},
-    async handler({ client }) {
+      "log directory and the Tomcat logs directory. Rotations make this long, so it " +
+      "is paginated (offset/limit; the page is under `files`) and filterable by " +
+      "name_contains (e.g. 'atlassian-jira').",
+    inputShape: { ...nameFilterShape, ...pageShape(LOG_FILE_PAGE) },
+    async handler({ client }, args) {
       const data = await client.listServerLogFiles();
-      return dumps(data);
+      const page = paginate(filterByName(data?.files ?? [], args.name_contains), args, LOG_FILE_PAGE);
+      return dumps({
+        logDirs: data?.logDirs,
+        total: page.total,
+        offset: page.offset,
+        returned: page.returned,
+        nextOffset: page.nextOffset,
+        files: page.items,
+      });
     },
   },
 

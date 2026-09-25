@@ -1,7 +1,7 @@
 {
   "name": "mcp-atlassian-for-admins",
   "version": "0.1.0",
-  "description": "Read-only MCP server for deep Jira Data Center 10 introspection — 76 tools for admins",
+  "description": "Read-only MCP server for deep Jira Data Center 10 introspection — 75 tools for admins",
   "license": "MIT",
   "repository": {
     "type": "git",

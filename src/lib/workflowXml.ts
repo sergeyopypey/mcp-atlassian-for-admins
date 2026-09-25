@@ -164,8 +164,33 @@ function hasKeys(obj: Record<string, unknown>): boolean {
   return Object.keys(obj).length > 0;
 }
 
-type Condition = { type: string; negate?: true; args?: Record<string, string> };
-type ConditionBlock = Condition | { operator: string; items: Array<Condition | ConditionBlock> };
+/**
+ * Readable type plus, for classes outside KNOWN_CLASSES, the full class name —
+ * the short name alone is ambiguous across apps (JMWE and Jira both ship a
+ * `FieldRequiredValidator`) and hides which app provides the rule.
+ */
+function classInfo(className: string): { type: string; className?: string } {
+  const type = simplifyClass(className);
+  return type === className || className in KNOWN_CLASSES ? { type } : { type, className };
+}
+
+/** Read `<meta name="...">value</meta>` children, minus keys already surfaced elsewhere. */
+function readMeta(node: XmlNode, skip: string[] = []): Record<string, string> {
+  const meta: Record<string, string> = {};
+  for (const m of children(node, "meta")) {
+    const name = attr(m, "name");
+    if (!skip.includes(name)) meta[name] = elementText(m);
+  }
+  return meta;
+}
+
+type Condition = {
+  type: string;
+  className?: string;
+  negate?: true;
+  args?: Record<string, string>;
+};
+export type ConditionBlock = Condition | { operator: string; items: Array<Condition | ConditionBlock> };
 
 /** Recursively parse a conditions block (AND/OR with nesting). */
 function parseConditionBlock(condEl: XmlNode): ConditionBlock | null {
@@ -176,7 +201,7 @@ function parseConditionBlock(condEl: XmlNode): ConditionBlock | null {
     const funcType = attr(c, "type");
     const negate = attr(c, "negate", "false").toLowerCase() === "true";
     const args = readArgs(c);
-    const entry: Condition = { type: simplifyClass(pop(args, "class.name", funcType)) };
+    const entry: Condition = classInfo(pop(args, "class.name", funcType));
     if (negate) entry.negate = true;
     if (hasKeys(args)) entry.args = args;
     items.push(entry);
@@ -199,8 +224,9 @@ function parseConditions(restrictEl: XmlNode | null): ConditionBlock | null {
   return parseConditionBlock(conditionsEl);
 }
 
-interface FunctionEntry {
+export interface FunctionEntry {
   type: string;
+  className?: string;
   args?: Record<string, string>;
 }
 
@@ -211,7 +237,7 @@ function parseFunctions(parent: XmlNode, parentTag: string, childTag: string): F
     const funcType = attr(func, "type");
     const args = readArgs(func);
     const className = pop(args, "class.name", funcType);
-    const entry: FunctionEntry = { type: simplifyClass(className) };
+    const entry: FunctionEntry = classInfo(className);
     if (hasKeys(args)) {
       delete args["full.module.key"];
       if (hasKeys(args)) entry.args = args;
@@ -221,17 +247,21 @@ function parseFunctions(parent: XmlNode, parentTag: string, childTag: string): F
   return result;
 }
 
-interface ActionEntry {
+export interface ActionEntry {
   id: number;
   name: string;
   from: string;
   to: string | null;
   screenId?: string;
+  meta?: Record<string, string>;
   conditions?: ConditionBlock;
   validators?: FunctionEntry[];
   preFunctions?: FunctionEntry[];
   postFunctions?: FunctionEntry[];
 }
+
+/** Target of a `step="-1"` result: the issue stays in its current status. */
+const CURRENT_STATUS = "(current status)";
 
 /** Parse a single action (transition) element. */
 function parseAction(actionEl: XmlNode, fromStep: string, stepMap: Map<number, string>): ActionEntry {
@@ -247,15 +277,19 @@ function parseAction(actionEl: XmlNode, fromStep: string, stepMap: Map<number, s
     const stepIdStr = r.hasAttribute?.("step") ? r.getAttribute?.("step") : null;
     if (stepIdStr) {
       const stepIdInt = parseInt(stepIdStr, 10);
-      targetStatus = stepMap.get(stepIdInt) ?? `step-${stepIdStr}`;
+      // step="-1" keeps the issue in the status it is transitioned from.
+      targetStatus =
+        stepIdInt === -1
+          ? CURRENT_STATUS
+          : (stepMap.get(stepIdInt) ?? `step-${stepIdStr}`);
       break;
     }
   }
 
-  const actionMeta: Record<string, string> = {};
-  for (const m of children(actionEl, "meta")) {
-    actionMeta[attr(m, "name")] = elementText(m);
-  }
+  const screenId = children(actionEl, "meta").find(
+    (m) => attr(m, "name") === "jira.fieldscreen.id",
+  );
+  const actionMeta = readMeta(actionEl, ["jira.fieldscreen.id"]);
 
   const entry: ActionEntry = {
     id: actionId,
@@ -264,9 +298,8 @@ function parseAction(actionEl: XmlNode, fromStep: string, stepMap: Map<number, s
     to: targetStatus,
   };
 
-  if (actionMeta["jira.fieldscreen.id"]) {
-    entry.screenId = actionMeta["jira.fieldscreen.id"];
-  }
+  if (screenId && elementText(screenId)) entry.screenId = elementText(screenId);
+  if (hasKeys(actionMeta)) entry.meta = actionMeta;
 
   const conditions = parseConditions(firstChild(actionEl, "restrict-to"));
   if (conditions) entry.conditions = conditions;
@@ -283,8 +316,15 @@ function parseAction(actionEl: XmlNode, fromStep: string, stepMap: Map<number, s
   return entry;
 }
 
-interface ParsedWorkflow {
-  steps: Array<{ id: number; name: string; statusId: string | null; actions?: ActionEntry[] }>;
+export interface ParsedWorkflow {
+  meta?: Record<string, string>;
+  steps: Array<{
+    id: number;
+    name: string;
+    statusId: string | null;
+    meta?: Record<string, string>;
+    actions?: ActionEntry[];
+  }>;
   initialActions?: ActionEntry[];
   globalActions?: ActionEntry[];
   [k: string]: unknown;
@@ -317,16 +357,16 @@ export function parseWorkflowXml(xmlStr: string): ParsedWorkflow {
     const stepId = intAttr(step, "id");
     const stepName = attr(step, "name");
 
-    const stepMeta: Record<string, string> = {};
-    for (const m of children(step, "meta")) {
-      stepMeta[attr(m, "name")] = elementText(m);
-    }
+    const statusId = children(step, "meta").find((m) => attr(m, "name") === "jira.status.id");
+    // Status properties such as jira.permission.* and jira.issue.editable.
+    const stepMeta = readMeta(step, ["jira.status.id"]);
 
     const stepEntry: ParsedWorkflow["steps"][number] = {
       id: stepId,
       name: stepName,
-      statusId: stepMeta["jira.status.id"] ?? null,
+      statusId: statusId ? elementText(statusId) : null,
     };
+    if (hasKeys(stepMeta)) stepEntry.meta = stepMeta;
 
     const actions: ActionEntry[] = [];
     for (const action of descendants(step, "action")) {
@@ -351,6 +391,8 @@ export function parseWorkflowXml(xmlStr: string): ParsedWorkflow {
   );
 
   const result: ParsedWorkflow = { steps };
+  const workflowMeta = readMeta(root);
+  if (hasKeys(workflowMeta)) result.meta = workflowMeta;
   if (initialActions.length > 0) result.initialActions = initialActions;
   if (globalActions.length > 0) result.globalActions = globalActions;
   return result;

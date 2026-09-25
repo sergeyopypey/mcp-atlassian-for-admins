@@ -1,7 +1,7 @@
 /** Project introspection tools. */
 
 import { z } from "zod";
-import { JiraClient } from "../client.js";
+import { boundedAll, JiraClient } from "../client.js";
 import { isHttpStatusError } from "../errors.js";
 import { dumps } from "../json.js";
 import type { ToolDef } from "./types.js";
@@ -34,6 +34,53 @@ export async function resolveProjectConfig(
   const permScheme = await tryGet(`/rest/api/2/project/${projectKey}/permissionscheme`);
   const secScheme = await tryGet(`/rest/api/2/project/${projectKey}/issuesecuritylevelscheme`);
 
+  // DC has no per-project REST endpoint for these three schemes. The issue type
+  // scheme is found by scanning each scheme's associations; the other two come
+  // from the ScriptRunner endpoints, which list each scheme's projects. A failed
+  // lookup is reported in an `error` field rather than failing the whole tool.
+  const isProject = (p: any): boolean => String(p?.key) === project.key;
+
+  const issueTypeScheme = await (async (): Promise<Record<string, any>> => {
+    try {
+      const schemes = await client.listIssueTypeSchemes();
+      const associations = await boundedAll(
+        schemes.map((s: any) => () => client.getIssueTypeSchemeAssociations(s.id)),
+      );
+      const i = associations.findIndex((projects) => (projects ?? []).some(isProject));
+      // Unassociated projects fall back to the global default issue type scheme.
+      return i >= 0
+        ? { id: Number(schemes[i].id), name: schemes[i].name }
+        : { id: null, name: "Default" };
+    } catch (e: any) {
+      return { id: null, name: null, error: String(e?.message ?? e) };
+    }
+  })();
+
+  const issueTypeScreenScheme = await (async (): Promise<Record<string, any>> => {
+    try {
+      const schemes = await client.listIssueTypeScreenSchemes();
+      const s = schemes.find((x: any) => (x.projects ?? []).some(isProject));
+      return s
+        ? { id: s.id, name: s.name, mappings: s.mappings ?? [] }
+        : { id: null, name: null, mappings: [] };
+    } catch (e: any) {
+      return { id: null, name: null, mappings: [], error: String(e?.message ?? e) };
+    }
+  })();
+
+  const fieldConfigurationScheme = await (async (): Promise<Record<string, any>> => {
+    try {
+      const schemes = await client.listFieldConfigurationSchemes();
+      const s = schemes.find((x: any) => (x.projects ?? []).some(isProject));
+      // No scheme means every issue type uses the system default field configuration.
+      return s
+        ? { id: s.id, name: s.name, mappings: s.mappings ?? [] }
+        : { id: null, name: "System Default Field Configuration", mappings: [] };
+    } catch (e: any) {
+      return { id: null, name: null, mappings: [], error: String(e?.message ?? e) };
+    }
+  })();
+
   return {
     key: project.key,
     name: project.name,
@@ -52,6 +99,9 @@ export async function resolveProjectConfig(
         defaultWorkflow: wfScheme ? (wfScheme.defaultWorkflow ?? null) : null,
         issueTypeMappings: wfScheme ? (wfScheme.issueTypeMappings ?? {}) : {},
       },
+      issueTypeScheme,
+      issueTypeScreenScheme,
+      fieldConfigurationScheme,
       notificationScheme: {
         id: notifScheme ? (notifScheme.id ?? null) : null,
         name: notifScheme ? notifScheme.name : "Default",
@@ -91,9 +141,12 @@ export const projectTools: ToolDef[] = [
   {
     name: "get_project_config",
     description:
-      "Get the full configuration chain for a project: which workflow scheme, " +
-      "issue type scheme, issue type screen scheme, and field configuration scheme " +
-      "it uses, plus its available issue types. Essential for understanding a project's setup.",
+      "Get the schemes a project uses, plus its basic details (key, name, type, lead) " +
+      "and issue types. Schemes: workflow (with issue-type-to-workflow mappings), " +
+      "issue type, issue type screen and field configuration (both with their " +
+      "issue-type mappings), permission, notification, issue security. The issue type " +
+      "screen and field configuration schemes come from ScriptRunner endpoints; a " +
+      "scheme that could not be resolved carries an `error` field.",
     inputShape: { project_key: z.string().describe("Jira project key (e.g. 'PROJ')") },
     async handler({ client }, args) {
       return dumps(await resolveProjectConfig(client, args.project_key));

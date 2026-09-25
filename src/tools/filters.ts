@@ -2,6 +2,9 @@
 
 import { dumps } from "../json.js";
 import type { ToolDef } from "./types.js";
+import { filterByName, nameFilterShape, pageShape, paginate } from "./util.js";
+
+const DASHBOARD_PAGE = 200;
 
 export const filterTools: ToolDef[] = [
   {
@@ -33,18 +36,19 @@ export const filterTools: ToolDef[] = [
 
   {
     name: "list_dashboards",
-    description: "List all dashboards with owner and popularity.",
-    inputShape: {},
-    async handler({ client }) {
-      const dashboards = await client.listDashboards();
+    description:
+      "List dashboards visible to the authenticated user: id, name, and view URL. " +
+      "The dashboard REST API does not expose owner or popularity. " +
+      "Paginated (offset/limit) and filterable by name_contains.",
+    inputShape: { ...nameFilterShape, ...pageShape(DASHBOARD_PAGE) },
+    async handler({ client }, args) {
+      const dashboards = filterByName(await client.listDashboards(), args.name_contains);
       return dumps(
-        dashboards.map((d: any) => ({
-          id: d.id,
-          name: d.name,
-          owner: d.owner ? (d.owner.displayName ?? null) : null,
-          popularity: d.popularity,
-          view: d.view,
-        })),
+        paginate(
+          dashboards.map((d: any) => ({ id: d.id, name: d.name, view: d.view })),
+          args,
+          DASHBOARD_PAGE,
+        ),
       );
     },
   },

@@ -7,6 +7,7 @@ import { boundedAll, collectPagedEntries } from "../../src/client.js";
 import { pythonIsoUtc } from "../../src/tools/fields.js";
 import { parseWorkflowXml } from "../../src/lib/workflowXml.js";
 import { dumps } from "../../src/json.js";
+import { filterByName, paginate } from "../../src/tools/util.js";
 
 test("boundedAll preserves input order and caps concurrency", async () => {
   let inFlight = 0;
@@ -73,8 +74,27 @@ test("pythonIsoUtc formats like datetime.isoformat()", () => {
   );
 });
 
-test("dumps omits undefined keys (JS behaviour)", () => {
-  assert.equal(dumps({ a: undefined, b: 1 }), '{\n  "b": 1\n}');
+test("dumps is compact and omits undefined keys (JS behaviour)", () => {
+  assert.equal(dumps({ a: undefined, b: 1, c: [1, 2] }), '{"b":1,"c":[1,2]}');
+});
+
+test("paginate slices and reports the next offset", () => {
+  const items = [1, 2, 3, 4, 5];
+  assert.deepEqual(paginate(items, {}, 2), {
+    total: 5, offset: 0, returned: 2, nextOffset: 2, items: [1, 2],
+  });
+  assert.deepEqual(paginate(items, { offset: 4, limit: 10 }, 2), {
+    total: 5, offset: 4, returned: 1, nextOffset: null, items: [5],
+  });
+  assert.deepEqual(paginate(items, { offset: 9 }, 2), {
+    total: 5, offset: 9, returned: 0, nextOffset: null, items: [],
+  });
+});
+
+test("filterByName matches a case-insensitive substring", () => {
+  const items = [{ name: "Bug Workflow" }, { name: "Task" }, {}];
+  assert.deepEqual(filterByName(items, "bug"), [{ name: "Bug Workflow" }]);
+  assert.equal(filterByName(items, undefined), items);
 });
 
 test("parseWorkflowXml extracts steps and transitions", () => {
@@ -149,4 +169,64 @@ test("parseWorkflowXml decodes ScriptRunner base64 arg values", () => {
     "scriptPath: com/example/workflows/postfunctions/examplePostFunction.groovy",
   );
   assert.equal(args.plain, 'issue.summary == "x"'); // non-blob values pass through
+});
+
+test("parseWorkflowXml keeps meta, rule order, class names, and stay-in-status results", () => {
+  const xml = `<workflow>
+    <meta name="jira.description">Example</meta>
+    <steps>
+      <step id="1" name="Open">
+        <meta name="jira.status.id">1</meta>
+        <meta name="jira.permission.worklog.denied">denied</meta>
+        <actions>
+          <action id="11" name="Comment only">
+            <meta name="jira.fieldscreen.id">10000</meta>
+            <meta name="opsbar-sequence">10</meta>
+            <restrict-to>
+              <conditions type="AND">
+                <condition type="class">
+                  <arg name="class.name">com.atlassian.jira.workflow.condition.AllowOnlyAssignee</arg>
+                </condition>
+                <condition type="class">
+                  <arg name="class.name">com.example.plugin.CustomCondition</arg>
+                </condition>
+              </conditions>
+            </restrict-to>
+            <results>
+              <unconditional-result step="-1">
+                <post-functions>
+                  <function type="class">
+                    <arg name="class.name">com.example.plugin.First</arg>
+                  </function>
+                  <function type="class">
+                    <arg name="class.name">com.atlassian.jira.workflow.function.issue.IssueReindexFunction</arg>
+                  </function>
+                </post-functions>
+              </unconditional-result>
+            </results>
+          </action>
+        </actions>
+      </step>
+    </steps>
+  </workflow>`;
+  const parsed = parseWorkflowXml(xml);
+  assert.deepEqual(parsed.meta, { "jira.description": "Example" });
+  const step = parsed.steps[0];
+  assert.equal(step.statusId, "1");
+  assert.deepEqual(step.meta, { "jira.permission.worklog.denied": "denied" });
+  const action = step.actions?.[0];
+  assert.equal(action?.to, "(current status)");
+  assert.equal(action?.screenId, "10000");
+  assert.deepEqual(action?.meta, { "opsbar-sequence": "10" });
+  assert.deepEqual(action?.conditions, {
+    operator: "AND",
+    items: [
+      { type: "OnlyAssignee" },
+      { type: "CustomCondition", className: "com.example.plugin.CustomCondition" },
+    ],
+  });
+  assert.deepEqual(action?.postFunctions, [
+    { type: "First", className: "com.example.plugin.First" },
+    { type: "ReindexIssue" },
+  ]);
 });

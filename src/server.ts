@@ -1,5 +1,5 @@
 /**
- * MCP server — registers all 60 tools and wires them to the Jira DC client.
+ * MCP server — registers all tools and wires them to the Jira DC client.
  *
  * This server operates in read-only mode. It does not modify Jira configuration.
  */
@@ -8,7 +8,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { JiraClient } from "./client.js";
 import { AutomationCache } from "./automationCache.js";
 import { ALL_TOOLS } from "./tools/index.js";
+import { MAX_RESPONSE_CHARS, exceedsResponseLimit } from "./json.js";
 import type { ToolContext } from "./tools/types.js";
+
+
+function tooLargeError(toolName: string, size: number): string {
+  return JSON.stringify({
+    error:
+      `Response too large: ${size} characters, limit is ${MAX_RESPONSE_CHARS}. ` +
+      "Narrow the call: pass a smaller limit, page with offset, or use the tool's " +
+      "filters (name_contains, project_key, ...). For a single large entity, use the " +
+      "matching get_* tool instead of a list/dump tool.",
+    tool: toolName,
+  });
+}
 
 export interface CreatedServer {
   server: McpServer;
@@ -35,7 +48,11 @@ export function createServer(): CreatedServer {
       { description: tool.description, inputSchema: tool.inputShape },
       async (args: Record<string, any>) => {
         try {
-          const text = await tool.handler(ctx, args ?? {});
+          let text = await tool.handler(ctx, args ?? {});
+          if (exceedsResponseLimit(text)) {
+            console.error(`Tool ${tool.name} response too large: ${text.length} chars`);
+            text = tooLargeError(tool.name, text.length);
+          }
           return { content: [{ type: "text" as const, text }] };
         } catch (e: any) {
           console.error(`Tool ${tool.name} failed: ${e?.stack ?? e}`);

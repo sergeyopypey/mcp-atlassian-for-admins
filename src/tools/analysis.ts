@@ -6,12 +6,15 @@ import type { ToolDef } from "./types.js";
 import { resolveProjectConfig } from "./projects.js";
 import { has, safeList } from "./util.js";
 
+/** Jira's built-in "Default Issue Type Screen Scheme" always has ID 1. */
+const DEFAULT_ISSUE_TYPE_SCREEN_SCHEME_ID = 1;
+
 export const analysisTools: ToolDef[] = [
   {
     name: "analyze_project_config_chain",
     description:
       "Resolve the FULL scheme chain for a project and report inconsistencies. " +
-      "Shows: project → issue types → workflow scheme → workflows, " +
+      "Shows: project → issue type scheme and issue types → workflow scheme → workflows, " +
       "issue type screen scheme → screen schemes → screens, " +
       "field configuration scheme → field configs. " +
       "Reports issues (missing mappings) and warnings.",
@@ -39,12 +42,18 @@ export const analysisTools: ToolDef[] = [
       }
 
       const itss = (config.schemes ?? {}).issueTypeScreenScheme ?? {};
-      if (!itss.id) {
+      if (itss.error) {
+        warnings.push(`Could not resolve issue type screen scheme: ${itss.error}`);
+      } else if (!itss.id) {
+        warnings.push("No issue type screen scheme is associated with the project");
+      } else if (Number(itss.id) === DEFAULT_ISSUE_TYPE_SCREEN_SCHEME_ID) {
         warnings.push("Project uses default issue type screen scheme");
       }
 
       const fcs = (config.schemes ?? {}).fieldConfigurationScheme ?? {};
-      if (!fcs.id) {
+      if (fcs.error) {
+        warnings.push(`Could not resolve field configuration scheme: ${fcs.error}`);
+      } else if (!fcs.id) {
         warnings.push(
           "Project uses default field configuration scheme (all fields use default config)",
         );
@@ -53,6 +62,7 @@ export const analysisTools: ToolDef[] = [
       const chain: Record<string, any> = {
         project: { key: config.key, name: config.name },
         issueTypes,
+        issueTypeScheme: (config.schemes ?? {}).issueTypeScheme ?? {},
         workflowScheme: wfScheme,
         issueTypeScreenScheme: itss,
         fieldConfigurationScheme: fcs,
@@ -61,25 +71,20 @@ export const analysisTools: ToolDef[] = [
       };
 
       if (itss.id) {
-        try {
-          const itssItems = await client.getIssueTypeScreenSchemeItems([itss.id]);
-          const screenSchemeIds = new Set<number>();
-          for (const item of itssItems) {
-            const ssid = item.screenSchemeId;
-            if (ssid) screenSchemeIds.add(Number(ssid));
-          }
+        const screenSchemeIds = new Set<number>();
+        for (const item of itss.mappings ?? []) {
+          const ssid = item.screenSchemeId;
+          if (ssid) screenSchemeIds.add(Number(ssid));
+        }
 
-          chain.resolvedScreenSchemes = [];
-          for (const ssid of screenSchemeIds) {
-            try {
-              const ss = await client.getScreenScheme(ssid);
-              chain.resolvedScreenSchemes.push(ss ? ss : { id: ssid, error: "not found" });
-            } catch {
-              chain.resolvedScreenSchemes.push({ id: ssid, error: "failed to fetch" });
-            }
+        chain.resolvedScreenSchemes = [];
+        for (const ssid of screenSchemeIds) {
+          try {
+            const ss = await client.getScreenScheme(ssid);
+            chain.resolvedScreenSchemes.push(ss ? ss : { id: ssid, error: "not found" });
+          } catch {
+            chain.resolvedScreenSchemes.push({ id: ssid, error: "failed to fetch" });
           }
-        } catch {
-          // ignore
         }
       }
 

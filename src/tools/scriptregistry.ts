@@ -19,6 +19,7 @@ import * as path from "node:path";
 
 import type { ToolDef } from "./types.js";
 import { dumps } from "../json.js";
+import { isHttpStatusError } from "../errors.js";
 import { unzipBuffer } from "../zip.js";
 
 export const scriptRegistryTools: ToolDef[] = [
@@ -39,13 +40,30 @@ export const scriptRegistryTools: ToolDef[] = [
         .boolean()
         .optional()
         .describe(
-          "If true, export only active/enabled scripts ('Export active scripts only'). " +
-            "Default false exports everything.",
+          "If true, use ScriptRunner's 'Export active scripts only'. This is not just " +
+            "the full export minus disabled items: ScriptRunner also leaves out whole " +
+            "item types, depending on its version — script fields are always omitted, " +
+            "and some versions omit all workflow functions too. Default false exports " +
+            "everything; use it when the full inventory matters.",
         ),
     },
     async handler({ client }, args) {
       const activeOnly: boolean = args.active_only ?? false;
-      const zip = await client.exportScriptRegistryZip(activeOnly);
+      let zip: Buffer;
+      try {
+        zip = await client.exportScriptRegistryZip(activeOnly);
+      } catch (e) {
+        if (isHttpStatusError(e) && e.status === 404) {
+          return dumps({
+            error:
+              "ScriptRunner's script export endpoint is not available on this instance " +
+              "(HTTP 404 for /rest/scriptrunner/latest/script/export). The installed " +
+              "ScriptRunner likely predates 'Export all scripts' (e.g. 7.x); check its " +
+              "version with dump_plugin_inventory.",
+          });
+        }
+        throw e;
+      }
       const entries = unzipBuffer(zip);
 
       const outDir = path.resolve(args.output_dir);

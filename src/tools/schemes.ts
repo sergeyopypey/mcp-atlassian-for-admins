@@ -48,7 +48,10 @@ export const schemeTools: ToolDef[] = [
 
   {
     name: "get_notification_scheme",
-    description: "Get notification scheme with all event-to-notification mappings.",
+    description:
+      "Get notification scheme with all event-to-notification mappings. Each notification " +
+      "has the recipient type (e.g. CurrentAssignee, Group, ProjectRole, UserCustomField), " +
+      "its raw parameter, and a resolved target name (group, role, user, field, or email) when applicable.",
     inputShape: { scheme_id: z.coerce.number().int().describe("Notification scheme ID") },
     async handler({ client }, args) {
       const scheme = await client.getNotificationScheme(args.scheme_id);
@@ -62,8 +65,17 @@ export const schemeTools: ToolDef[] = [
             e.event && typeof e.event === "object" ? e.event.name : e.event,
           eventId: e.event && typeof e.event === "object" ? e.event.id : null,
           notifications: (e.notifications ?? []).map((n: any) => ({
-            type: n.type,
-            parameter: n.parameter,
+            // Jira DC names the recipient kind `notificationType`
+            // (CurrentAssignee, Reporter, Group, ProjectRole, UserCustomField, …).
+            type: n.notificationType ?? n.type ?? null,
+            parameter: n.parameter ?? null,
+            target:
+              n.group?.name ??
+              n.projectRole?.name ??
+              n.user?.name ??
+              n.field?.name ??
+              n.emailAddress ??
+              null,
           })),
         })),
       });

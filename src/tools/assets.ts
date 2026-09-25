@@ -36,6 +36,28 @@ function compactAttribute(a: any): Record<string, unknown> {
   };
 }
 
+const IQL_DEFAULT_MAX_RESULTS = 25;
+
+/**
+ * Compact an object's attribute values for search results: each value becomes
+ * its display value, and a reference becomes {id, objectKey, label} instead of
+ * the full nested object (avatar, links, timestamps) Assets embeds.
+ */
+function compactAttributeValues(attributes: any[] | undefined): Array<Record<string, unknown>> {
+  return (attributes ?? []).map((a: any) => ({
+    objectTypeAttributeId: a.objectTypeAttributeId,
+    values: (a.objectAttributeValues ?? []).map((v: any) =>
+      v.referencedObject
+        ? {
+            id: v.referencedObject.id,
+            objectKey: v.referencedObject.objectKey,
+            label: v.referencedObject.label,
+          }
+        : (v.displayValue ?? v.value ?? null),
+    ),
+  }));
+}
+
 export const assetsTools: ToolDef[] = [
   {
     name: "list_object_schemas",
@@ -159,8 +181,13 @@ export const assetsTools: ToolDef[] = [
     description:
       'Search Assets objects with IQL (Insight Query Language), e.g. \'objectType = "Laptop" ' +
       'AND Status = "In Use"\'. Supports AND/OR/NOT, IN(...), LIKE, dot-walking ' +
-      '(Department.Name = "IT"), and "order by". Returns matched objects (paginated) plus the ' +
-      "total match count.",
+      '(Department.Name = "IT"), and "order by". Returns the total match count and up to ' +
+      `max_results objects (default ${IQL_DEFAULT_MAX_RESULTS}); each attribute is given as ` +
+      "objectTypeAttributeId (names via get_object_type_attributes) with its display values, " +
+      "references as {id, objectKey, label}. Narrow the IQL rather than raising max_results: " +
+      "every object carries all its attributes, so for attribute-heavy types (15+ attributes) " +
+      "a few dozen objects can already exceed the response size limit and the call fails. " +
+      "Use get_object for one object's full detail.",
     inputShape: {
       iql: z.string().describe('IQL query string, e.g. \'objectType = "Server"\''),
       schema_id: z
@@ -172,12 +199,12 @@ export const assetsTools: ToolDef[] = [
         .coerce.number()
         .int()
         .optional()
-        .describe("Cap the number of objects returned (default: all matches)"),
+        .describe(`Cap the number of objects returned (default ${IQL_DEFAULT_MAX_RESULTS})`),
     },
     async handler({ client }, args) {
       const { objects, total } = await client.searchObjectsIql(args.iql, {
         objectSchemaId: args.schema_id,
-        maxResults: args.max_results,
+        maxResults: args.max_results ?? IQL_DEFAULT_MAX_RESULTS,
       });
       return dumps({
         total,
@@ -187,7 +214,7 @@ export const assetsTools: ToolDef[] = [
           label: o.label,
           objectKey: o.objectKey,
           objectType: o.objectType ? (o.objectType.name ?? null) : null,
-          attributes: o.attributes,
+          attributes: compactAttributeValues(o.attributes),
         })),
       });
     },

@@ -15,6 +15,10 @@ import { HttpStatusError, isHttpStatusError } from "./errors.js";
 const PAGINATION_MAX = 1000; // safety cap so we never loop forever
 const MAX_CONCURRENCY = 10; // cap parallel requests; DC returns 403 above ~50 rapid concurrent
 const REQUEST_TIMEOUT_MS = 60_000;
+// Jira DC rate limiting answers 429 with Retry-After (seconds); the request
+// was not processed, so it is retried after the advised pause.
+const RATE_LIMIT_RETRIES = 4;
+const RATE_LIMIT_MAX_WAIT_MS = 10_000;
 
 // Assets (Insight) lives on the same DC host as Jira. The original
 // `/rest/insight/1.0` path works on every bundled version (JSM DC 4.15+); the
@@ -124,12 +128,17 @@ export class JiraClient {
       method,
       headers: opts.headers ? { ...this.config.headers, ...opts.headers } : this.config.headers,
       dispatcher: this.agent,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     };
     if (opts.json !== undefined) init.body = JSON.stringify(opts.json);
-    const res = await fetch(url, init);
-    const text = await res.text();
-    return { status: res.status, text };
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      const text = await res.text();
+      if (res.status !== 429 || attempt >= RATE_LIMIT_RETRIES) return { status: res.status, text };
+      const retryAfterS = Number(res.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfterS) && retryAfterS > 0 ? retryAfterS * 1000 : 1000 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, Math.min(waitMs, RATE_LIMIT_MAX_WAIT_MS)));
+    }
   }
 
   private parse(text: string): Json {
@@ -312,45 +321,36 @@ export class JiraClient {
     return this.get("/rest/api/2/workflow");
   }
 
-  async getWorkflowByName(name: string): Promise<Json | null> {
-    const workflows = await this.listWorkflows();
-    for (const wf of workflows) {
-      if (wf?.name === name) return wf;
-    }
-    return null;
-  }
-
-  async getWorkflowTransitions(workflowId: string | number): Promise<Json[]> {
-    try {
-      return await this.get(`/rest/api/2/workflow/${workflowId}/transitions`);
-    } catch (e) {
-      if (isHttpStatusError(e)) return [];
-      throw e;
-    }
-  }
-
-  async getWorkflowDesigner(workflowName: string): Promise<Json | null> {
-    try {
-      return await this.get("/rest/workflowDesigner/latest/workflows", { name: workflowName });
-    } catch (e) {
-      if (isHttpStatusError(e)) return null;
-      throw e;
-    }
-  }
-
-  /** Export a workflow as raw XML via a ScriptRunner custom endpoint. */
+  /**
+   * Fetch a workflow's XML descriptor (null on a network failure or an empty
+   * body). Throws HttpStatusError on an error status, with a message naming
+   * the cause: 401/403 means the token's user lacks the Jira Administrators
+   * global permission the endpoint requires.
+   */
   async exportWorkflowXml(workflowName: string): Promise<string | null> {
+    let res: { status: number; text: string };
     try {
-      const { status, text } = await this.request(
+      res = await this.request(
         "GET",
         "/rest/scriptrunner/latest/custom/jiraMcpExportWorkflow",
         { params: { workflowName } },
       );
-      if (status >= 400) return null;
-      return text.length > 0 ? text : null;
     } catch {
       return null;
     }
+    if (res.status >= 400) {
+      const cause =
+        res.status === 401 || res.status === 403
+          ? "the token's user lacks the Jira Administrators global permission the endpoint requires"
+          : (res.text || "").split(/\s+/).join(" ").slice(0, 200);
+      throw new HttpStatusError(
+        res.status,
+        res.text,
+        "/rest/scriptrunner/latest/custom/jiraMcpExportWorkflow",
+        `jiraMcpExportWorkflow returned HTTP ${res.status}: ${cause}`,
+      );
+    }
+    return res.text.length > 0 ? res.text : null;
   }
 
   async getProjectStatuses(projectKey: string): Promise<Json[]> {
@@ -362,7 +362,8 @@ export class JiraClient {
       const data = await this.get("/rest/servicedeskapi/servicedesk");
       return data?.values ?? [];
     } catch (e) {
-      if (isHttpStatusError(e)) return [];
+      // Without JSM some instances answer 200 with an HTML page instead of a 404.
+      if (isHttpStatusError(e) || e instanceof SyntaxError) return [];
       throw e;
     }
   }
@@ -470,15 +471,6 @@ export class JiraClient {
     return schemes.length > 0 ? schemes[0] : null;
   }
 
-  async getIssueTypeScreenSchemeItems(schemeIds?: number[]): Promise<Json[]> {
-    let schemes = await this.listIssueTypeScreenSchemes();
-    if (schemeIds && schemeIds.length > 0) {
-      const wanted = new Set(schemeIds.map((s) => Number(s)));
-      schemes = schemes.filter((s) => wanted.has(s.id));
-    }
-    return schemes.flatMap((s) => s.mappings ?? []);
-  }
-
   // -- screen schemes (ScriptRunner) --------------------------------------
 
   async listScreenSchemes(): Promise<Json[]> {
@@ -556,15 +548,6 @@ export class JiraClient {
     return this.scriptrunnerGet("jiraMcpEffectivePermissions", params);
   }
 
-  async getWorkflowTransitionDetails(
-    workflowName: string,
-    transitionId?: number | null,
-  ): Promise<Json> {
-    const params: Params = { workflowName };
-    if (transitionId !== undefined && transitionId !== null) params.transitionId = transitionId;
-    return this.scriptrunnerGet("jiraMcpWorkflowTransitionDetails", params);
-  }
-
   // -- server logs (ScriptRunner) -----------------------------------------
 
   async listServerLogFiles(): Promise<Json> {
@@ -615,7 +598,8 @@ export class JiraClient {
 
   async getNotificationScheme(schemeId: number): Promise<Json> {
     return this.get(`/rest/api/2/notificationscheme/${schemeId}`, {
-      expand: "notificationSchemeEvents",
+      // `all` also expands group/projectRole/user/field details per notification.
+      expand: "all",
     });
   }
 
@@ -686,6 +670,34 @@ export class JiraClient {
     }
   }
 
+  // SLA configuration comes from JSM's internal admin REST (the API behind
+  // Project settings → SLAs / Calendars); the public servicedeskapi only
+  // exposes per-request SLA values, not metric or calendar definitions.
+
+  /** SLA metrics of a service project: `{timeMetrics, calendarRefs, slaConsistencyData, ...}`. */
+  async getSlaMetrics(projectKey: string): Promise<Json> {
+    return this.get(
+      `/rest/servicedesk/1/servicedesk/agent/${encodeURIComponent(projectKey)}/sla/metrics`,
+    );
+  }
+
+  /** Calendars of a service desk (no working times); the built-in 24/7 calendar has no id. */
+  async getSlaCalendars(serviceDeskId: number): Promise<Json[]> {
+    return this.get(`/rest/servicedesk/1/servicedesk/${serviceDeskId}/sla/calendars`);
+  }
+
+  /** One calendar with `timeZone`, `workingTimes` and `holidays`. */
+  async getSlaCalendar(serviceDeskId: number, calendarId: number): Promise<Json> {
+    return this.get(`/rest/servicedesk/1/servicedesk/${serviceDeskId}/sla/calendars/${calendarId}`);
+  }
+
+  /** `{slaConfigurationErrors}` for one SLA metric (e.g. an invalid goal JQL). */
+  async getSlaValidation(serviceDeskId: number, metricId: number): Promise<Json> {
+    return this.get(
+      `/rest/servicedesk/1/servicedesk/${serviceDeskId}/sla/configuration/validate/${metricId}`,
+    );
+  }
+
   // ======================================================================
   // Filters, dashboards, categories
   // ======================================================================
@@ -733,16 +745,13 @@ export class JiraClient {
     }
   }
 
-  async getIssueTypeSchemeProjectAssociations(): Promise<Json[]> {
-    return this.getPaged("/rest/api/2/issuetypescheme/project", "values");
-  }
-
-  async getIssueTypeScreenSchemeProjectAssociations(): Promise<Json[]> {
-    return this.getPaged("/rest/api/2/issuetypescreenscheme/project", "values");
-  }
-
-  async getFieldConfigSchemeProjectAssociations(): Promise<Json[]> {
-    return this.getPaged("/rest/api/2/fieldconfigurationscheme/project", "values");
+  /**
+   * Projects explicitly associated with an issue type scheme. Projects on the
+   * global default scheme are not listed. (The Cloud-style bulk
+   * `/issuetypescheme/project` endpoint does not exist on DC.)
+   */
+  async getIssueTypeSchemeAssociations(schemeId: number | string): Promise<Json[]> {
+    return this.get(`/rest/api/2/issuetypescheme/${schemeId}/associations`);
   }
 
   // ======================================================================
@@ -937,7 +946,8 @@ export class JiraClient {
           iql,
           objectSchemaId: opts.objectSchemaId,
           page,
-          resultPerPage: IQL_PAGE_SIZE,
+          // Never fetch (and expand attributes of) more objects than will be returned.
+          resultPerPage: Math.max(1, Math.min(IQL_PAGE_SIZE, opts.maxResults ?? IQL_PAGE_SIZE)),
           includeAttributes: opts.includeAttributes ?? true,
         });
         total = data?.totalFilterCount ?? 0;

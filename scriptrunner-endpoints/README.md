@@ -17,14 +17,13 @@ Custom REST endpoints for Jira Data Center that expose Java API data unavailable
 | `/jiraMcpFieldConfigurationSchemes` | Field configuration schemes with issue type mappings and project associations |
 | `/jiraMcpScreenSchemes` | Screen schemes with operation→screen mappings |
 | `/jiraMcpIssueTypeScreenSchemes` | Issue type screen schemes with issue type→screen scheme mappings |
-| `/jiraMcpWorkflowTransitionDetails` | Full transition rule config (post-function params, condition/validator args) |
 | `/jiraMcpCustomFieldContexts` | Custom field contexts with project/issue type scoping |
 | `/jiraMcpListeners` | All registered event listeners |
 | `/jiraMcpScheduledServices` | Jira scheduled services (mail handlers, etc.) |
 | `/jiraMcpApplicationLinks` | Application links to Confluence, Bitbucket, etc. |
 | `/jiraMcpEffectivePermissions` | Resolved effective permissions for user+project |
-| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow_detail`) |
-| `/jiraMcpServerLog` | List/tail/grep server log files; restricted to the Jira/Tomcat log directories and `jira-administrators` |
+| `/jiraMcpExportWorkflow` | Workflow OpenSymphony XML descriptor (powers `get_workflow`, `search_workflow_rules`); requires the Jira Administrators global permission |
+| `/jiraMcpServerLog` | List/tail/grep server log files; restricted to the Jira/Tomcat log directories; requires the System Administrators global permission |
 
 All endpoints are wired into working MCP tools (see the project README).
 A tool surfaces a clear error if its endpoint is missing or failing — failures
@@ -33,6 +32,8 @@ are not silently degraded.
 ## Authentication
 
 These endpoints inherit ScriptRunner's authentication. Callers must authenticate with Jira credentials (Basic auth or PAT) that have admin privileges.
+
+The two sensitive endpoints check a global permission in code rather than a group name, since the admin group is named differently across instances: `/jiraMcpExportWorkflow` needs Jira Administrators, `/jiraMcpServerLog` needs System Administrators.
 
 ## Notes
 
